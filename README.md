@@ -88,6 +88,31 @@ Todo queda guardado en el teléfono; sincroniza cuando tengas internet si config
 
 Datos → *Imprimir etiquetas* → filtra por edificio → Generar → imprime en papel adhesivo. Son Code128 con el serial exacto.
 
+## 7) Hacer un APK para el celular
+
+GitHub Actions **no tiene un botón mágico** para compilar APK: solo ejecuta flujos que tú defines en `.github/workflows/*.yml`. Ya dejé uno listo en este proyecto.
+
+### Opción A: GitHub Actions (APK con Capacitor)
+
+1. Sube a GitHub estos dos archivos nuevos:
+   - `.github/workflows/build-apk.yml`
+   - `tools/patch_android.py`
+2. En GitHub entra a la pestaña **Actions**.
+3. A la izquierda selecciona **Compilar APK** → botón **Run workflow** → **Run workflow**.
+4. Espera 3-6 minutos. Al terminar, en la ejecución aparece **Artifacts → preventivos-apk**.
+5. Descarga el `.zip`, extráelo y copia `app-debug.apk` al celular. Ábrelo e instala (hay que permitir "instalar aplicaciones desconocidas").
+
+El APK trae la app completa dentro (no depende de internet), usa la cámara y guarda los datos en el teléfono. Si quieres actualizarlo, repite el paso 3 con los cambios ya subidos.
+
+> Para subirlo a Google Play hace falta un APK/AAB **firmado** con tu propia llave y una cuenta de desarrollador; este flujo genera un `debug` listo para uso personal.
+
+### Opción B: PWABuilder (sin tocar Actions)
+
+1. Abre <https://www.pwabuilder.com/>, pega la URL HTTPS de tu PWA publicada y haz clic en **Start**.
+2. Elige **Package for app stores → Android → Generate Android package**.
+3. Descarga el APK y el archivo `assetlinks.json`.
+4. Sube `assetlinks.json` a `https://TU-USUARIO.github.io/.well-known/assetlinks.json` (o a la raíz de tu dominio) para que se instale a pantalla completa sin barra del navegador. Con GitHub Pages en una subcarpeta (`/repo/`) ese archivo debe ir al repositorio `TU-USUARIO.github.io`.
+
 ## Límites conocidos
 
 - Las fotos se guardan solo en el teléfono; no se suben a Sheets.
