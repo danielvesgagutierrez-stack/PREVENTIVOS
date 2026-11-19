@@ -2,8 +2,8 @@ name: Compilar APK
 
 # Uso: pestaña Actions → "Compilar APK" → Run workflow →
 # descargar el artifact "preventivos-apk" (zip con app-debug.apk).
-on:
-  workflow_dispatch:
+'on':
+  workflow_dispatch: {}
 
 permissions:
   contents: read
