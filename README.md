@@ -78,11 +78,24 @@ Todo queda guardado en el teléfono; sincroniza cuando tengas internet si config
 
 ## 5) Google Sheets (opcional)
 
-1. Crea un proyecto en <https://script.google.com> y pega `apps-script/Code.gs`.
-2. Ejecuta `setup()` una vez y autoriza.
-3. Implementar → Nueva implementación → **Aplicación web**, ejecutar como **Yo**, acceso **Cualquier persona con el enlace**.
-4. Pega la URL en Datos, confirma la clave `udes2026` (cámbiala en ambos archivos si quieres) y escribe tu nombre en *Técnico*.
-5. **Sincronizar ahora** crea/actualiza la hoja `Informe` con columnas A-L y colores, más `Cambios` y `Resumen`.
+1. Abre **la hoja de Google Sheets donde quieres el informe** (puede ser la del cronograma) → **Extensiones → Apps Script**. Eso asocia el script a ese archivo. Si lo creas en <https://script.google.com> como proyecto independiente, `setup()` creará un spreadsheet nuevo.
+2. Borra el `myFunction()` que aparece y pega todo `apps-script/Code.gs`. Guarda.
+3. En el selector de funciones elige `setup()` y pulsa **Ejecutar**. Autoriza (Revisar permisos → Configuración avanzada → Ir al proyecto). Se crearán las pestañas auxiliares `Cambios`, `Resumen` y `_estados` (oculta; guarda el estado de cada serial para los envíos parciales).
+4. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier persona con el enlace**. Copia la URL `https://script.google.com/macros/s/.../exec`.
+5. En la app (APK) ve a **Datos** → pega la URL en *URL del Web App*, confirma la clave `udes2026` (si la cambias, cámbiala también en `TOKEN` de `Code.gs`) y escribe tu nombre en *Técnico* → **Guardar datos**.
+
+### Envío automático (sin pulsar nada más)
+
+Con la URL guardada, **cada vez que des *Guardar y seguir*** (o des de alta un equipo) la app envía **solo ese registro**. El script busca el número de inventario en la pestaña que elegiste al subir el Excel (por ejemplo `2026-B`) y:
+
+- pinta la celda del serial con el color del estado (verde/ámbar/rojo/azul);
+- deja el **número en negro**;
+- escribe fecha ejecutada, técnico, semestre, horas y observaciones;
+- deja `FECHA SEGUIMIENTO` vacío y conserva `FECHA PROGRAMADA`.
+
+Si no hay internet, el registro queda en cola en el teléfono y se envía solo al volver la señal (o al guardar la configuración). La pestaña **Datos** muestra cuántos registros faltan por enviar. **Sincronizar ahora** sigue disponible para reenviar la jornada completa; no es necesario usarlo en el día a día.
+
+> La app no lee el Sheet directamente: tú subes el Excel desde el celular y la app **envía** los resultados al Sheet. Si no ves cambios, revisa que el despliegue sea "Cualquier persona con el enlace" y que el token coincida. Si antes habías sincronizado con la versión anterior, puedes borrar la pestaña vieja `Informe`; ya no se usa.
 
 ## 6) Etiquetas
 

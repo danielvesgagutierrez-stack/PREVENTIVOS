@@ -12,14 +12,15 @@
     config: 'prev_config_v3',
     jornada: 'prev_jornada_v3',
     archivo: 'prev_archivo_v3',
+    pendiente: 'prev_pendiente_v1', // seriales que no se pudieron enviar (sin internet)
   };
 
   const ESTADOS = {
-    OK:        { label: 'Hecho',                    desc: 'Sin novedades',                  argb: 'FF92D050', texto: 'FF15803D' },
-    NOVEDAD:   { label: 'Novedad',                  desc: 'Pantalla partida, etc.',         argb: 'FFFFC000', texto: 'FF9A3412' },
-    AUSENTE:   { label: 'No se encuentra',          desc: 'Ya no está en la dependencia',   argb: 'FFFF0000', texto: 'FFB91C1C' },
-    ALTA:      { label: 'Otra dependencia / nuevo', desc: 'Se reasignó o es equipo nuevo',  argb: 'FF00B0F0', texto: 'FF1D4ED8' },
-    PENDIENTE: { label: 'Pendiente',                desc: 'Sin registrar',                  argb: 'FFE9EEF4', texto: 'FF64748B' },
+    OK:        { label: 'Hecho',                    desc: 'Sin novedades',                  argb: 'FF92D050' },
+    NOVEDAD:   { label: 'Novedad',                  desc: 'Pantalla partida, etc.',         argb: 'FFFFC000' },
+    AUSENTE:   { label: 'No se encuentra',          desc: 'Ya no está en la dependencia',   argb: 'FFFF0000' },
+    ALTA:      { label: 'Otra dependencia / nuevo', desc: 'Se reasignó o es equipo nuevo',  argb: 'FF00B0F0' },
+    PENDIENTE: { label: 'Pendiente',                desc: 'Sin registrar',                  argb: 'FFE9EEF4' },
   };
   const ORDEN = ['OK', 'NOVEDAD', 'AUSENTE', 'ALTA'];
   const COLUMNAS_POR_DEFECTO = {
@@ -122,6 +123,7 @@
   function guardarProgreso() { escribir(K.progress, state.progress); }
   function guardarDataset() { escribir(K.data, state.data); }
   function jornada() { return state.data?.jornadas?.[0]; }
+  function nombreHoja() { return state.archivoMeta?.hoja || state.data?.hoja || jornada()?.nombre || 'Informe'; }
   function items() { return jornada()?.items || []; }
   function areas() { return state.data?.areas || []; }
   function columnas() { return state.data?.columnas || COLUMNAS_POR_DEFECTO; }
@@ -414,7 +416,7 @@
   }
 
   function viewDatos() {
-    const a = state.data?.alertas || []; const s = stats();
+    const a = state.data?.alertas || []; const s = stats(); const j = jornada();
     return `
       <div class="card"><h2>Informe final</h2>
         <p class="small muted">Genera un Excel con el mismo formato del archivo que subiste: fecha de ejecución de hoy, seguimiento en blanco, horas, observaciones y colores. ${s.TOTAL - s.HECHOS} equipos aún pendientes.</p>
@@ -424,7 +426,8 @@
         <div class="small muted mt">Archivo: ${esc(state.archivoMeta?.nombre || state.data?.fuente || '—')}<br>Hoja: ${esc(state.archivoMeta?.hoja || '—')}</div>
       </div>
       <div class="card"><h2>Google Sheets (opcional)</h2>
-        <p class="small muted">Los registros quedan en el teléfono aunque no haya señal; sincroniza al terminar. El script escribe una hoja <b>Informe</b> con columnas y colores.</p>
+        <p class="small muted">Con la URL guardada, cada equipo se envía <b>solo al dar Guardar y seguir</b>: el script busca el serial en la hoja <b>${esc(nombreHoja())}</b>, pinta la celda y llena fecha, horas y observaciones. Sin internet queda en cola y se envía cuando vuelva la señal.</p>
+        ${pendientes().length ? `<p class="small" style="color:#b45309">⏳ ${pendientes().length} registro(s) esperando para enviar</p>` : '<p class="small muted">✓ Sin registros pendientes</p>'}
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
         <label class="campo" for="cfgToken">Clave secreta</label>
@@ -534,12 +537,17 @@
     }
     setEstado(serial, { estado, novedad: observacionFinal(estado, nota, item), horas, horasTexto: ht, extra });
     vibrar(120);
-    toast(`${ESTADOS[estado].label} · ${serial}`);
     state.seleccion = null; state.seleccionSerial = null;
+    if (norm(state.config.url)) {
+      const enviado = await enviarFila(serial);
+      toast(`${ESTADOS[estado].label} · ${serial} · ${enviado ? 'enviado a Sheets' : 'sin internet: se enviará después'}`);
+    } else {
+      toast(`${ESTADOS[estado].label} · ${serial}`);
+    }
     go(seguir ? '#/escanear' : '#/area/' + encodeURIComponent(item.areaId));
   }
 
-  function darDeAlta(serial) {
+  async function darDeAlta(serial) {
     const areaId = $('#altaArea')?.value;
     const area = areas().find((a) => a.id === areaId);
     if (!area) { toast('Elige una dependencia'); return; }
@@ -558,7 +566,13 @@
     state.areaActual = areaId;
     setEstado(serial, { estado: 'ALTA', novedad: nota, horas, horasTexto: ht });
     guardarDataset(); vibrar(120);
-    toast('Agregado en azul'); go('#/equipo/' + encodeURIComponent(serial));
+    if (norm(state.config.url)) {
+      const enviado = await enviarFila(serial);
+      toast(enviado ? 'Agregado en azul · enviado a Sheets' : 'Agregado en azul · sin internet: se enviará después');
+    } else {
+      toast('Agregado en azul');
+    }
+    go('#/equipo/' + encodeURIComponent(serial));
   }
 
   function buscarSerial(texto) {
@@ -778,8 +792,8 @@
       } else {
         wb = new ExcelJS.Workbook();
       }
-      let ws = state.archivoMeta?.hoja ? wb.getWorksheet(state.archivoMeta.hoja) : null;
-      if (!ws) ws = wb.addWorksheet(state.archivoMeta?.hoja || j.nombre);
+      let ws = wb.getWorksheet(nombreHoja());
+      if (!ws) ws = wb.addWorksheet(nombreHoja());
 
       // El cronograma original tiene columnas completas unidas (A2:A265, G2:G21, K2:K21…).
       // Para poder escribir fecha/observaciones por equipo hay que separar esas celdas.
@@ -821,7 +835,8 @@
         // sin esta copia, el último color sobrescribe todos los anteriores.
         c.style = { ...c.style };
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ESTADOS[est].argb } };
-        c.font = { bold: true, color: { argb: ESTADOS[est].texto } };
+        // Solo cambia el fondo; el número queda en negro y se respeta el resto de la fuente.
+        c.font = { ...(c.font || {}), color: { argb: 'FF000000' } };
         registrados++;
       }
 
@@ -829,7 +844,7 @@
       const res = wb.addWorksheet('RESUMEN');
       res.addRows([
         ['INFORME DE MANTENIMIENTO PREVENTIVO'],
-        ['Hoja', state.archivoMeta?.hoja || j.nombre],
+        ['Hoja', nombreHoja()],
         ['Archivo', state.archivoMeta?.nombre || state.data.fuente || ''],
         ['Técnico', state.config.tecnico || j.tecnico || ''],
         ['Generado', hora()],
@@ -880,28 +895,70 @@
     XLSX.writeFile(wb, `control_${j.id}_${hoy()}.xlsx`); toast('Planilla de control descargada');
   }
 
+  function filaPayload(i, pr, j) {
+    const est = pr?.estado || i.estado || 'PENDIENTE';
+    return { serial: i.serial, estado: est, edificio: i.edificio, piso: i.piso, oficina: i.oficina,
+      tipo: i.tipo, programada: i.programada || '', semestre: i.semestre || j.semestre || '',
+      fecha: est === 'PENDIENTE' ? '' : (pr?.fecha || hoy()),
+      tecnico: pr?.tecnico || state.config.tecnico || j.tecnico || '',
+      horas: pr?.horas || 1, horasTexto: pr?.horasTexto || '', seguimiento: '',
+      observaciones: pr?.novedad || observacionFinal(est, '', i), color: ESTADOS[est]?.argb || ESTADOS.PENDIENTE.argb };
+  }
+
+  /** POST al Web App con límite de tiempo: si la señal se cuelga, se encola el registro. */
+  function postSheet(url, body) {
+    return new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('Tiempo de espera agotado')), 8000);
+      fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body })
+        .then(() => { clearTimeout(t); res(); })
+        .catch((e) => { clearTimeout(t); rej(e); });
+    });
+  }
+
+  function pendientes() { return leer(K.pendiente, []); }
+  function marcarPendiente(serial) {
+    const p = pendientes();
+    if (p.indexOf(serial) === -1) { p.push(serial); escribir(K.pendiente, p); }
+  }
+  function limpiarPendiente(serial) { escribir(K.pendiente, pendientes().filter((s) => s !== serial)); }
+
+  /** Envía UN solo equipo al Google Sheet en cuanto se guarda. Devuelve true si llegó. */
+  async function enviarFila(serial) {
+    const url = norm(state.config.url);
+    if (!url) return false;
+    const j = jornada();
+    const item = items().find((i) => i.serial === serial);
+    if (!item) return false;
+    try {
+      await postSheet(url, JSON.stringify({ token: state.config.token,
+        hoja: nombreHoja(), jornada: j.id, fecha: hora(),
+        tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
+        total: items().length, modo: 'fila', filas: [filaPayload(item, progreso(j.id, serial), j)] }));
+      limpiarPendiente(serial);
+      return true;
+    } catch (e) { marcarPendiente(serial); return false; }
+  }
+
+  async function reintentarPendientes() {
+    if (!pendientes().length || !norm(state.config.url)) return;
+    for (const s of pendientes().slice()) await enviarFila(s);
+  }
+
   async function sincronizar() {
     const url = norm($('#cfgUrl')?.value || state.config.url);
     const out = $('#syncResult');
     if (!url) { toast('Configura la URL del Web App'); return; }
+    const cfgUrl = url;
+    const cfgToken = $('#cfgToken')?.value ?? state.config.token;
     const j = jornada(); const col = columnas();
-    const filas = items().map((i) => {
-      const pr = progreso(j.id, i.serial) || {};
-      const est = pr.estado || i.estado || 'PENDIENTE';
-      return { serial: i.serial, estado: est, edificio: i.edificio, piso: i.piso, oficina: i.oficina,
-        tipo: i.tipo, programada: i.programada || '', semestre: i.semestre || j.semestre || '',
-        fecha: est === 'PENDIENTE' ? '' : hoy(),
-        tecnico: pr.tecnico || state.config.tecnico || j.tecnico || '',
-        horas: pr.horas || 1, horasTexto: pr.horasTexto || '', seguimiento: '',
-        observaciones: pr.novedad || observacionFinal(est, '', i), color: ESTADOS[est]?.argb || ESTADOS.PENDIENTE.argb,
-        columnas: col };
-    });
+    const filas = items().map((i) => filaPayload(i, progreso(j.id, i.serial), j));
     try {
-      await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: JSON.stringify({ token: $('#cfgToken')?.value ?? state.config.token,
-          hoja: state.archivoMeta?.hoja || j.nombre, jornada: j.id, fecha: hora(),
-          tecnico: state.config.tecnico || j.tecnico || '', filas }) });
-      out.textContent = 'Enviado ' + hora() + '. Revisa la hoja Informe.'; toast('Datos enviados'); vibrar(100);
+      await postSheet(cfgUrl, JSON.stringify({ token: cfgToken,
+        hoja: nombreHoja(), jornada: j.id, fecha: hora(),
+        tecnico: state.config.tecnico || j.tecnico || '', columnas: col,
+        total: items().length, modo: 'total', filas }) );
+      escribir(K.pendiente, []);
+      out.textContent = 'Enviado ' + hora() + '. Revisa la hoja ' + (nombreHoja()) + '.'; toast('Datos enviados'); vibrar(100);
     } catch (e) { out.textContent = 'No se pudo enviar: ' + e.message; }
   }
 
@@ -974,7 +1031,8 @@
       case 'generar-etiquetas': generarEtiquetas(); break;
       case 'guardar-config':
         state.config = { url: $('#cfgUrl').value, token: $('#cfgToken').value, tecnico: $('#cfgTecnico').value };
-        escribir(K.config, state.config); toast('Configuración guardada'); break;
+        escribir(K.config, state.config); toast('Configuración guardada');
+        await reintentarPendientes(); render(); break;
       case 'borrar-progreso':
         if (confirm('¿Borrar todos los registros de esta jornada en el teléfono?')) {
           delete state.progress[state.jornadaId]; guardarProgreso(); toast('Registros borrados'); render();
@@ -1007,6 +1065,7 @@
     if (e.target.dataset.act === 'filtro-ed') { state.filtroEdificio = e.target.value; render(); }
   });
   window.addEventListener('hashchange', render);
+  window.addEventListener('online', () => { reintentarPendientes().then(() => { if ($('#syncResult')) render(); }); });
 
   (async () => {
     await cargar(); render();
