@@ -84,18 +84,25 @@ Todo queda guardado en el teléfono; sincroniza cuando tengas internet si config
 4. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier persona con el enlace**. Copia la URL `https://script.google.com/macros/s/.../exec`.
 5. En la app (APK) ve a **Datos** → pega la URL en *URL del Web App*, confirma la clave `udes2026` (si la cambias, cámbiala también en `TOKEN` de `Code.gs`) y escribe tu nombre en *Técnico* → **Guardar datos**.
 
-### Envío automático (sin pulsar nada más)
+### Sincronización automática (bidireccional)
 
-Con la URL guardada, **cada vez que des *Guardar y seguir*** (o des de alta un equipo) la app envía **solo ese registro**. El script busca el número de inventario en la pestaña que elegiste al subir el Excel (por ejemplo `2026-B`) y:
+Con la URL guardada:
+
+- **Al dar *Guardar y seguir*** (o dar de alta un equipo) se envía **solo ese registro**.
+- **Al abrir la APK**, **al volver la señal** y **cada 5 minutos**, la app envía la jornada completa y **trae los cambios** del Sheet.
+
+El script busca el número de inventario en la pestaña que elegiste al subir el Excel (por ejemplo `2026-B`) y:
 
 - pinta la celda del serial con el color del estado (verde/ámbar/rojo/azul);
 - deja el **número en negro**;
 - escribe fecha ejecutada, técnico, semestre, horas y observaciones;
 - deja `FECHA SEGUIMIENTO` vacío y conserva `FECHA PROGRAMADA`.
 
-Si no hay internet, el registro queda en cola en el teléfono y se envía solo al volver la señal (o al guardar la configuración). La pestaña **Datos** muestra cuántos registros faltan por enviar. **Sincronizar ahora** sigue disponible para reenviar la jornada completa; no es necesario usarlo en el día a día.
+Al traer cambios, gana el registro **más reciente** (se compara la fecha). La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*. Si ves muchos **con color** y pocos **con datos**, el Sheet tiene los colores del cronograma pero aún no se han escrito los valores: ejecuta **Sincronizar ahora** y vuelve a revisar.
 
-> La app no lee el Sheet directamente: tú subes el Excel desde el celular y la app **envía** los resultados al Sheet. Si no ves cambios, revisa que el despliegue sea "Cualquier persona con el enlace" y que el token coincida. Si antes habías sincronizado con la versión anterior, puedes borrar la pestaña vieja `Informe`; ya no se usa.
+Si no hay internet, el registro queda en cola en el teléfono y se envía solo al volver la señal. La pestaña **Datos** muestra cuántos registros faltan por enviar.
+
+> La app no lee el Sheet con CORS directo: usa JSONP (`<script>`) porque Apps Script no envía cabeceras CORS. Por eso el despliegue debe ser **"Cualquier persona con el enlace"** y el token debe coincidir. Si antes habías sincronizado con la versión anterior, puedes borrar la pestaña vieja `Informe`; ya no se usa.
 
 ## 6) Etiquetas
 

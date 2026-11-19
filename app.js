@@ -13,6 +13,7 @@
     jornada: 'prev_jornada_v3',
     archivo: 'prev_archivo_v3',
     pendiente: 'prev_pendiente_v1', // seriales que no se pudieron enviar (sin internet)
+    sync: 'prev_sync_v1',           // resultado de la última sincronización
   };
 
   const ESTADOS = {
@@ -75,6 +76,17 @@
     if (n === 2) return 'dos horas';
     return n + ' horas';
   }
+  /** Convierte texto libre ("media hora", "1,5 horas", etc.) a número. */
+  function horasDeTexto(txt) {
+    const t = norm(txt);
+    if (!t) return 0;
+    if (/media hora|30 minutos/i.test(t)) return 0.5;
+    if (/hora y media/i.test(t)) return 1.5;
+    if (/dos horas/i.test(t)) return 2;
+    const m = t.match(/(\d+(?:[.,]\d+)?)/);
+    return m ? Number(m[1].replace(',', '.')) : 0;
+  }
+
   function descargar(datos, nombre, mime) {
     const url = URL.createObjectURL(new Blob([datos], { type: mime }));
     const a = document.createElement('a'); a.href = url; a.download = nombre;
@@ -416,7 +428,7 @@
   }
 
   function viewDatos() {
-    const a = state.data?.alertas || []; const s = stats(); const j = jornada();
+    const a = state.data?.alertas || []; const s = stats(); const j = jornada(); const sy = leer(K.sync, null);
     return `
       <div class="card"><h2>Informe final</h2>
         <p class="small muted">Genera un Excel con el mismo formato del archivo que subiste: fecha de ejecución de hoy, seguimiento en blanco, horas, observaciones y colores. ${s.TOTAL - s.HECHOS} equipos aún pendientes.</p>
@@ -426,8 +438,10 @@
         <div class="small muted mt">Archivo: ${esc(state.archivoMeta?.nombre || state.data?.fuente || '—')}<br>Hoja: ${esc(state.archivoMeta?.hoja || '—')}</div>
       </div>
       <div class="card"><h2>Google Sheets (opcional)</h2>
-        <p class="small muted">Con la URL guardada, cada equipo se envía <b>solo al dar Guardar y seguir</b>: el script busca el serial en la hoja <b>${esc(nombreHoja())}</b>, pinta la celda y llena fecha, horas y observaciones. Sin internet queda en cola y se envía cuando vuelva la señal.</p>
+        <p class="small muted">Cada equipo se envía <b>al dar Guardar y seguir</b> a la hoja <b>${esc(nombreHoja())}</b>. Además, al abrir la app y cada 5 min se envía lo pendiente y se <b>traen los cambios</b> que hicieron en el Sheet (gana lo más reciente). Sin internet queda en cola.</p>
         ${pendientes().length ? `<p class="small" style="color:#b45309">⏳ ${pendientes().length} registro(s) esperando para enviar</p>` : '<p class="small muted">✓ Sin registros pendientes</p>'}
+        <p class="small muted">↻ Auto-sync: al abrir, al volver la señal y cada 5 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
+        ${sy?.coloreadas !== undefined ? `<p class="small muted">Sheet leído: ${sy.coloreadas} con color · ${sy.conDatos} con datos (fecha/horas/observaciones)</p>` : ''}
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
         <label class="campo" for="cfgToken">Clave secreta</label>
@@ -486,14 +500,7 @@
 
   function leerHoras() {
     const txt = norm($('#horasTxt')?.value || 'una hora');
-    const m = txt.match(/(\d+(?:[.,]\d+)?)/);
-    let horas;
-    if (/media hora|30 minutos/i.test(txt)) horas = 0.5;
-    else if (/hora y media/i.test(txt)) horas = 1.5;
-    else if (m) horas = Number(m[1].replace(',', '.'));
-    else if (/dos horas/i.test(txt)) horas = 2;
-    else horas = 1;
-    return { horas, horasTexto: txt || 'una hora' };
+    return { horas: horasDeTexto(txt) || 1, horasTexto: txt || 'una hora' };
   }
 
   function observacionFinal(estado, nota, item) {
@@ -944,22 +951,97 @@
     for (const s of pendientes().slice()) await enviarFila(s);
   }
 
-  async function sincronizar() {
+  /** Lee el Google Sheet mediante JSONP (Apps Script no manda cabeceras CORS). */
+  function leerDesdeSheets(url, token) {
+    const destino = norm(url || state.config.url);
+    if (!destino || !state.data) return;
+    const cb = '__prevPull';
+    window[cb] = aplicarCambiosSheet;
+    const sep = destino.indexOf('?') >= 0 ? '&' : '?';
+    const src = destino + sep + 'token=' + encodeURIComponent(token || state.config.token || 'udes2026')
+      + '&hoja=' + encodeURIComponent(nombreHoja())
+      + '&callback=' + cb + '&t=' + Date.now();
+    const s = document.createElement('script');
+    s.src = src;
+    s.onerror = () => { escribir(K.sync, { hora: hora(), ok: false, error: 'No se pudo leer el Sheet' }); };
+    document.head.appendChild(s);
+    setTimeout(() => s.remove(), 15000);
+  }
+
+  /** Aplica al teléfono lo que cambiaron en el Sheet; gana lo más reciente. */
+  function aplicarCambiosSheet(data) {
+    if (!data || !data.ok) return;
+    const j = jornada(); if (!j) return;
+    if (!state.progress[j.id]) state.progress[j.id] = {};
+    const todas = data.filas || [];
+    const coloreadas = todas.filter((f) => f.estado).length;
+    const conDatos = todas.filter((f) => norm(f.fecha) || norm(f.observaciones) || norm(f.horasTexto)).length;
+    let cambios = 0;
+    (data.filas || []).forEach((f) => {
+      const item = j.items.find((i) => i.serial === f.serial);
+      if (!item || !f.estado || f.estado === 'PENDIENTE') return;
+      // Si el Sheet solo tiene el color pero no datos, no sobrescribimos el equipo.
+      if (!norm(f.fecha) && !norm(f.observaciones) && !norm(f.horasTexto)) return;
+      const pr = state.progress[j.id][f.serial];
+      if (pr && pr.fecha && norm(f.fecha) && norm(f.fecha) <= norm(pr.fecha)) return;
+      const h = horasDeTexto(f.horasTexto);
+      state.progress[j.id][f.serial] = {
+        estado: f.estado,
+        novedad: norm(f.observaciones) || observacionFinal(f.estado, '', item),
+        horas: h || (pr?.horas || 1),
+        horasTexto: norm(f.horasTexto) || horasTexto(pr?.horas || 1),
+        fecha: norm(f.fecha) || (hoy() + ' ' + hora().slice(11)),
+        tecnico: f.tecnico || state.config.tecnico || j.tecnico || '',
+      };
+      item.estado = f.estado;
+      item.novedad = state.progress[j.id][f.serial].novedad;
+      cambios++;
+    });
+    if (cambios) {
+      guardarProgreso(); guardarDataset();
+      const activo = document.activeElement;
+      const escribiendo = activo && /^(INPUT|TEXTAREA|SELECT)$/.test(activo.tagName);
+      if (!escribiendo) render();
+      toast(cambios + ' cambio(s) traídos del Sheet');
+    }
+    escribir(K.sync, { hora: hora(), ok: true, cambios: cambios, coloreadas: coloreadas, conDatos: conDatos });
+  }
+
+  let syncEnCurso = false;
+  /** Enviar + traer. Se usa al abrir, cada 5 min, al volver la señal y al pulsar el botón. */
+  async function sincronizar(silent) {
     const url = norm($('#cfgUrl')?.value || state.config.url);
     const out = $('#syncResult');
-    if (!url) { toast('Configura la URL del Web App'); return; }
+    if (!url) { if (!silent) toast('Configura la URL del Web App'); return false; }
+    if (syncEnCurso) return false;
+    syncEnCurso = true;
     const cfgUrl = url;
     const cfgToken = $('#cfgToken')?.value ?? state.config.token;
     const j = jornada(); const col = columnas();
     const filas = items().map((i) => filaPayload(i, progreso(j.id, i.serial), j));
+    let ok = false, msg = '';
     try {
       await postSheet(cfgUrl, JSON.stringify({ token: cfgToken,
         hoja: nombreHoja(), jornada: j.id, fecha: hora(),
         tecnico: state.config.tecnico || j.tecnico || '', columnas: col,
         total: items().length, modo: 'total', filas }) );
       escribir(K.pendiente, []);
-      out.textContent = 'Enviado ' + hora() + '. Revisa la hoja ' + (nombreHoja()) + '.'; toast('Datos enviados'); vibrar(100);
-    } catch (e) { out.textContent = 'No se pudo enviar: ' + e.message; }
+      ok = true; msg = 'Enviado y consultado ' + hora();
+    } catch (e) { msg = 'No se pudo enviar: ' + e.message; }
+    if (ok) leerDesdeSheets(cfgUrl, cfgToken);
+    escribir(K.sync, { hora: hora(), ok: ok, cambios: 0 });
+    if (!silent) {
+      if (out) out.textContent = msg + '. Revisa la hoja ' + nombreHoja() + '.';
+      if (ok) { toast('Datos enviados y consultados'); vibrar(100); setTimeout(() => render(), 2500); }
+    }
+    syncEnCurso = false;
+    return ok;
+  }
+
+  async function sincronizarAuto() {
+    if (!norm(state.config.url) || !state.data) return;
+    await reintentarPendientes();
+    await sincronizar(true);
   }
 
   function generarEtiquetas() {
@@ -1065,10 +1147,13 @@
     if (e.target.dataset.act === 'filtro-ed') { state.filtroEdificio = e.target.value; render(); }
   });
   window.addEventListener('hashchange', render);
-  window.addEventListener('online', () => { reintentarPendientes().then(() => { if ($('#syncResult')) render(); }); });
+  window.addEventListener('online', () => sincronizarAuto());
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizarAuto(); });
+  setInterval(() => { if (!document.hidden) sincronizarAuto(); }, 5 * 60 * 1000);
 
   (async () => {
     await cargar(); render();
+    setTimeout(() => sincronizarAuto(), 1500); // sincroniza al abrir la APK
     if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   })();
 })();

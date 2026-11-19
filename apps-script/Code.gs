@@ -169,31 +169,29 @@ function doPost(e) {
     });
     let filaLibre = ultima + 1; // equipos dados de alta que no estaban en el Sheet
 
-    const ancho = Math.max(hoja.getLastColumn(), 12);
     const registrados = filas.filter((f) => f.estado && f.estado !== 'PENDIENTE');
     registrados.forEach((f) => {
       const clave = String(f.serial || '').trim();
       const fila = porSerial[clave] || filaLibre++;
-      const valores = hoja.getRange(fila, 1, 1, ancho).getValues()[0];
-
-      valores[col.edificio - 1] = f.edificio || '';
-      valores[col.piso - 1] = f.piso || '';
-      valores[col.oficina - 1] = f.oficina || '';
-      valores[col.serial - 1] = f.serial || '';
-      valores[col.tipo - 1] = f.tipo || '';
-      // FECHA PROGRAMADA se deja como estaba en el Sheet.
-      valores[col.ejecutada - 1] = f.fecha || '';
-      valores[col.tecnico - 1] = f.tecnico || '';
-      valores[col.semestre - 1] = f.semestre || '';
-      valores[col.duracion - 1] = f.horasTexto || f.horas || '';
-      valores[col.seguimiento - 1] = ''; // la llena otra persona
-      valores[col.observaciones - 1] = f.observaciones || '';
-
-      hoja.getRange(fila, 1, 1, ancho).setValues([valores]);
+      // Escribimos columna por columna: si el cronograma tiene celdas combinadas
+      // en otras columnas, un setValues de toda la fila fallaría y no se guardaría nada.
+      const campos = [
+        [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
+        [col.serial, f.serial], [col.tipo, f.tipo],
+        // FECHA PROGRAMADA se deja como estaba en el Sheet.
+        [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
+        [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
+        [col.observaciones, f.observaciones],
+      ];
+      campos.forEach((par) => {
+        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
+      });
       // Solo cambia el fondo; el número de inventario queda en negro.
-      hoja.getRange(fila, col.serial)
-        .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
-        .setFontColor('#000000');
+      try {
+        hoja.getRange(fila, col.serial)
+          .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
+          .setFontColor('#000000');
+      } catch (err) {}
     });
 
     // Acumulamos TODOS los estados (de a un equipo o de la jornada completa).
@@ -233,8 +231,61 @@ function doPost(e) {
   }
 }
 
+/**
+ * Lectura para la app. La app usa JSONP (<script>) porque Apps Script no
+ * envía cabeceras CORS: así puede traer los cambios del Sheet.
+ * URL: .../exec?token=...&hoja=2026-B&callback=__prevPull
+ */
 function doGet(e) {
-  return HtmlService.createHtmlOutput('<h2>Preventivos UDES</h2><p>Backend activo. Configura la URL en la app.</p>');
+  const p = e.parameter || {};
+  const cb = /^[A-Za-z_$][\w$]*$/.test(String(p.callback || '')) ? String(p.callback) : 'prevPull';
+  try {
+    if (p.token !== TOKEN) return jsonp(cb, { ok: false, error: 'Clave inválida' });
+    const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+    if (!id) return jsonp(cb, { ok: false, error: 'Ejecuta setup() primero' });
+    const ss = SpreadsheetApp.openById(id);
+    const nombre = String(p.hoja || '').trim();
+    const hoja = nombre ? ss.getSheetByName(nombre) : null;
+    if (!hoja) return jsonp(cb, { ok: false, error: 'No existe la hoja ' + nombre });
+
+    const col = detectarColumnas(hoja, null);
+    const ultima = hoja.getLastRow();
+    const filas = [];
+    if (ultima > col.filaEncabezado) {
+      const ancho = Math.max(hoja.getLastColumn(), 12);
+      const rango = hoja.getRange(col.filaEncabezado + 1, 1, ultima - col.filaEncabezado, ancho);
+      const vals = rango.getValues();
+      const fondos = rango.getBackgrounds();
+      const inverso = {};
+      for (const k in FONDOS) inverso[String(FONDOS[k]).toLowerCase()] = k;
+      for (let i = 0; i < vals.length; i++) {
+        const serial = String(vals[i][col.serial - 1] || '').trim();
+        if (!serial) continue;
+        const color = String(fondos[i][col.serial - 1] || '').toLowerCase();
+        const fechaRaw = vals[i][col.ejecutada - 1];
+        const fecha = fechaRaw instanceof Date
+          ? fechaRaw.toISOString().slice(0, 16).replace('T', ' ')
+          : String(fechaRaw || '');
+        filas.push({
+          serial: serial,
+          estado: inverso[color] || '',
+          fecha: fecha,
+          tecnico: String(vals[i][col.tecnico - 1] || ''),
+          semestre: String(vals[i][col.semestre - 1] || ''),
+          horasTexto: String(vals[i][col.duracion - 1] || ''),
+          observaciones: String(vals[i][col.observaciones - 1] || ''),
+        });
+      }
+    }
+    return jsonp(cb, { ok: true, hoja: nombre, columnas: col, filas: filas, generado: new Date().toISOString() });
+  } catch (err) {
+    return jsonp(cb, { ok: false, error: String(err) });
+  }
+}
+
+function jsonp(callback, obj) {
+  return ContentService.createTextOutput(callback + '(' + JSON.stringify(obj) + ');')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
 function respuesta(obj) {
