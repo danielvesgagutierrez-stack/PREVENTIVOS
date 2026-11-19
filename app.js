@@ -14,6 +14,7 @@
     archivo: 'prev_archivo_v3',
     pendiente: 'prev_pendiente_v1', // seriales que no se pudieron enviar (sin internet)
     sync: 'prev_sync_v1',           // resultado de la última sincronización
+    cargar: 'prev_cargar_v1',       // cronograma pendiente de subir al Sheet
   };
 
   const ESTADOS = {
@@ -438,9 +439,9 @@
         <div class="small muted mt">Archivo: ${esc(state.archivoMeta?.nombre || state.data?.fuente || '—')}<br>Hoja: ${esc(state.archivoMeta?.hoja || '—')}</div>
       </div>
       <div class="card"><h2>Google Sheets (opcional)</h2>
-        <p class="small muted">Cada equipo se envía <b>al dar Guardar y seguir</b> a la hoja <b>${esc(nombreHoja())}</b>. Además, al abrir la app y cada 5 min se envía lo pendiente y se <b>traen los cambios</b> que hicieron en el Sheet (gana lo más reciente). Sin internet queda en cola.</p>
+        <p class="small muted">Cada equipo se envía <b>al dar Guardar y seguir</b> a la hoja <b>${esc(nombreHoja())}</b>. Además, al abrir la app y cada 2 min se envía lo pendiente y se <b>traen los cambios</b> que hicieron en el Sheet (gana lo más reciente). Al escanear también se actualiza. Sin internet queda en cola.</p>
         ${pendientes().length ? `<p class="small" style="color:#b45309">⏳ ${pendientes().length} registro(s) esperando para enviar</p>` : '<p class="small muted">✓ Sin registros pendientes</p>'}
-        <p class="small muted">↻ Auto-sync: al abrir, al volver la señal y cada 5 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
+        <p class="small muted">↻ Auto-sync: al abrir, al escanear, al volver la señal y cada 2 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
         ${sy?.coloreadas !== undefined ? `<p class="small muted">Sheet leído: ${sy.coloreadas} con color · ${sy.conDatos} con datos (fecha/horas/observaciones)</p>` : ''}
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
@@ -547,6 +548,7 @@
     state.seleccion = null; state.seleccionSerial = null;
     if (norm(state.config.url)) {
       const enviado = await enviarFila(serial);
+      if (enviado) leerDesdeSheets(state.config.url, state.config.token);
       toast(`${ESTADOS[estado].label} · ${serial} · ${enviado ? 'enviado a Sheets' : 'sin internet: se enviará después'}`);
     } else {
       toast(`${ESTADOS[estado].label} · ${serial}`);
@@ -575,6 +577,7 @@
     guardarDataset(); vibrar(120);
     if (norm(state.config.url)) {
       const enviado = await enviarFila(serial);
+      if (enviado) leerDesdeSheets(state.config.url, state.config.token);
       toast(enviado ? 'Agregado en azul · enviado a Sheets' : 'Agregado en azul · sin internet: se enviará después');
     } else {
       toast('Agregado en azul');
@@ -582,8 +585,15 @@
     go('#/equipo/' + encodeURIComponent(serial));
   }
 
+  /** Cada escaneo/búsqueda reenvía pendientes y trae lo último del Sheet. */
+  function actualizarPorScan() {
+    if (!norm(state.config.url)) return;
+    reintentarPendientes().then(() => leerDesdeSheets(state.config.url, state.config.token));
+  }
+
   function buscarSerial(texto) {
     const t = norm(texto); if (!t) return;
+    actualizarPorScan();
     const dt = digitos(t);
     const item = items().find((i) => i.serial === t)
       || (dt.length >= 8 && items().find((i) => digitos(i.serial) === dt))
@@ -697,7 +707,8 @@
       guardarDataset(); escribir(K.archivo, state.archivoMeta);
       state.jornadaId = state.data.jornadas[0].id;
       escribir(K.jornada, state.jornadaId);
-      toast(`Hoja "${nombre}": ${state.data.resumen.equiposUnicos} equipos`);
+      toast(`Hoja "${nombre}": ${state.data.resumen.equiposUnicos} equipos. Subiendo a Sheets...`);
+      await subirCronograma(nombre);
       go('#/inicio'); location.reload();
     } catch (e) { toast('No se pudo leer la hoja: ' + e.message); }
   }
@@ -922,6 +933,71 @@
     });
   }
 
+  /** Filas con el estado actual, para aplicarlas encima del cronograma recién subido. */
+  function filasActuales() {
+    const j = jornada(); if (!j) return [];
+    return items().map((i) => filaPayload(i, progreso(j.id, i.serial), j));
+  }
+
+  /** Convierte la hoja original del Excel en un payload que Apps Script puede recrear. */
+  async function serializarHoja(nombreHoja) {
+    const blob = await archivoLeer();
+    if (!blob) return null;
+    const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array', cellStyles: true, cellDates: true });
+    const ws = wb.Sheets[nombreHoja];
+    if (!ws) return null;
+    const ref = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    const nFil = ref.e.r + 1, nCol = ref.e.c + 1;
+    const valores = [], tipos = [], estilos = [];
+    for (let r = 0; r < nFil; r++) {
+      const vf = [], tf = [], ef = [];
+      for (let c = 0; c < nCol; c++) {
+        const cel = ws[XLSX.utils.encode_cell({ r, c })];
+        if (!cel) { vf.push(''); tf.push(''); ef.push({}); continue; }
+        let v = cel.v;
+        if (v instanceof Date) v = v.toISOString().slice(0, 10);
+        vf.push(v == null ? '' : v);
+        tf.push(cel.t === 'd' ? 'd' : '');
+        const s = cel.s || {};
+        const bg = s.patternType === 'solid' && s.fgColor ? String(s.fgColor.rgb || '') : '';
+        const fg = s.font?.color?.rgb ? String(s.font.color.rgb) : '';
+        ef.push({ bg: bg.replace(/^0x/, ''), fg: fg.replace(/^0x/, '') });
+      }
+      valores.push(vf); tipos.push(tf); estilos.push(ef);
+    }
+    const merges = (ws['!merges'] || []).map((m) => [m.s.r, m.s.c, m.e.r, m.e.c]);
+    const cols = (ws['!cols'] || []).slice(0, nCol).map((c) => c ? Math.round(c.wpx || ((c.width || 10) * 7) + 5) : 0);
+    const rows = (ws['!rows'] || []).slice(0, nFil).map((h) => h ? Math.round(h.hpx || ((h.hpt || 15) * 1.33)) : 0);
+    while (cols.length < nCol) cols.push(0);
+    while (rows.length < nFil) rows.push(0);
+    const col = state.data?.columnas || COLUMNAS_POR_DEFECTO;
+    return { valores, tipos, estilos, merges, cols, rows, congelar: (col.headerRow || 0) + 1 };
+  }
+
+  /** Reemplaza el Google Sheet completo por la hoja del cronograma que se acaba de cargar. */
+  async function subirCronograma(nombre) {
+    const url = norm(state.config.url);
+    if (!url || !nombre) { escribir(K.cargar, { hoja: nombre }); return false; }
+    try {
+      const base = await serializarHoja(nombre);
+      if (!base) throw new Error('No se pudo leer el Excel original');
+      const j = jornada();
+      await postSheet(url, JSON.stringify({
+        token: state.config.token || 'udes2026',
+        hoja: nombre, jornada: j ? j.id : nombre, fecha: hora(),
+        tecnico: state.config.tecnico || j?.tecnico || '',
+        columnas: state.data?.columnas || COLUMNAS_POR_DEFECTO,
+        total: items().length, modo: 'cargar',
+        ...base, filas: filasActuales(),
+      }));
+      localStorage.removeItem(K.cargar);
+      return true;
+    } catch (e) {
+      escribir(K.cargar, { hoja: nombre, error: e.message });
+      return false;
+    }
+  }
+
   function pendientes() { return leer(K.pendiente, []); }
   function marcarPendiente(serial) {
     const p = pendientes();
@@ -1008,7 +1084,7 @@
   }
 
   let syncEnCurso = false;
-  /** Enviar + traer. Se usa al abrir, cada 5 min, al volver la señal y al pulsar el botón. */
+  /** Enviar + traer. Se usa al abrir, cada 2 min, al volver la señal y al pulsar el botón. */
   async function sincronizar(silent) {
     const url = norm($('#cfgUrl')?.value || state.config.url);
     const out = $('#syncResult');
@@ -1039,7 +1115,10 @@
   }
 
   async function sincronizarAuto() {
-    if (!norm(state.config.url) || !state.data) return;
+    if (!state.data) return;
+    const pendiente = leer(K.cargar, null);
+    if (pendiente && norm(state.config.url)) await subirCronograma(pendiente.hoja);
+    if (!norm(state.config.url)) return;
     await reintentarPendientes();
     await sincronizar(true);
   }
@@ -1114,7 +1193,7 @@
       case 'guardar-config':
         state.config = { url: $('#cfgUrl').value, token: $('#cfgToken').value, tecnico: $('#cfgTecnico').value };
         escribir(K.config, state.config); toast('Configuración guardada');
-        await reintentarPendientes(); render(); break;
+        await sincronizarAuto(); render(); break;
       case 'borrar-progreso':
         if (confirm('¿Borrar todos los registros de esta jornada en el teléfono?')) {
           delete state.progress[state.jornadaId]; guardarProgreso(); toast('Registros borrados'); render();
@@ -1149,7 +1228,7 @@
   window.addEventListener('hashchange', render);
   window.addEventListener('online', () => sincronizarAuto());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizarAuto(); });
-  setInterval(() => { if (!document.hidden) sincronizarAuto(); }, 5 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) sincronizarAuto(); }, 2 * 60 * 1000);
 
   (async () => {
     await cargar(); render();

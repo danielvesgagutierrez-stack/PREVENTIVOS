@@ -1,16 +1,20 @@
 /**
- * Backend opcional: escribe DIRECTAMENTE en la pestaña del cronograma
- * (por ejemplo "2026-B") de este Google Sheet. No crea una hoja "Informe".
+ * Backend de Preventivos UDES.
  *
- * La app envía un registro suelto cada vez que se pulsa "Guardar y seguir"
- * (modo: 'fila'). Con "Sincronizar ahora" envía la jornada completa
- * (modo: 'total'). En ambos casos se actualiza la misma pestaña.
+ * Al SUBIR el cronograma (modo: 'cargar'):
+ *   - borra TODAS las hojas actuales del Google Sheet;
+ *   - crea una sola hoja con el nombre de la hoja elegida en el Excel (2026-B, 2026-A...);
+ *   - copia valores, colores de fondo, fuentes, combinaciones, anchos y altos;
+ *   - aplica encima los estados ya registrados en la app.
  *
- * 1) Abre tu Google Sheet → Extensiones → Apps Script y pega este código.
+ * Después (modo: 'fila' / 'total') escribe solo las celdas de cada equipo,
+ * sin crear hojas auxiliares ni "Informe".
+ *
+ * 1) Google Sheet → Extensiones → Apps Script → pega este código.
  * 2) Ejecuta setup() una vez y autoriza.
  * 3) Implementar > Nueva implementación > Aplicación web >
  *    Ejecutar como: Yo > Acceso: Cualquier persona con el enlace.
- * 4) Pega la URL en la pantalla Datos de la app.
+ * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
 const FONDOS = {
@@ -23,10 +27,6 @@ const FONDOS = {
 const HEADERS = [
   'EDIFICIO', 'PISO', 'OFICINA', 'SERIAL UDES', 'TIPO EQUIPO', 'FECHA PROGRAMADA',
   'FECHA EJECUTADA', 'TÉCNICO', 'SEMESTRE', 'TIEMPO EJECUCIÓN', 'FECHA SEGUIMIENTO', 'OBSERVACIONES',
-];
-const COL_ESTADOS = [
-  'SERIAL', 'ESTADO', 'EDIFICIO', 'PISO', 'OFICINA', 'TIPO',
-  'OBSERVACIONES', 'TÉCNICO', 'HORAS', 'FECHA', 'SEMESTRE',
 ];
 const PATRONES = {
   edificio: /edificio|sede|bloque/i,
@@ -44,85 +44,18 @@ const PATRONES = {
 };
 
 function setup() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.create('Preventivos UDES - Informes');
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.create('Preventivos UDES');
   PropertiesService.getScriptProperties().setProperty('SHEET_ID', ss.getId());
-  tablaEstados(ss);
-  preparar(ss, 'Cambios', ['FECHA', 'SERIAL', 'TIPO', 'EDIFICIO', 'PISO', 'OFICINA', 'OBSERVACIONES', 'TÉCNICO']);
-  preparar(ss, 'Resumen', ['ITEM', 'VALOR']);
-  return 'Listo. La app escribirá en la pestaña del cronograma (por ejemplo 2026-B). ' + ss.getUrl();
+  return 'Listo. La app reemplazará el contenido por la hoja del cronograma. ' + ss.getUrl();
 }
 
-function preparar(ss, nombre, headers) {
-  let hoja = ss.getSheetByName(nombre);
-  if (!hoja) hoja = ss.insertSheet(nombre);
-  if (hoja.getLastRow() === 0) hoja.appendRow(headers);
-  hoja.setFrozenRows(1);
-  return hoja;
+function respuesta(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-/** Hoja oculta con el último estado de cada serial. Permite enviar de a un equipo. */
-function tablaEstados(ss) {
-  let hoja = ss.getSheetByName('_estados');
-  if (!hoja) {
-    hoja = ss.insertSheet('_estados');
-    hoja.appendRow(COL_ESTADOS);
-    try { hoja.hideSheet(); } catch (err) {}
-  }
-  return hoja;
-}
-
-/** Guarda/actualiza los seriales recibidos y devuelve TODOS los estados acumulados. */
-function upsertEstados(ss, filas) {
-  const hoja = tablaEstados(ss);
-  const ultima = Math.max(hoja.getLastRow(), 1);
-  const actuales = ultima > 1 ? hoja.getRange(2, 1, ultima - 1, COL_ESTADOS.length).getValues() : [];
-  const mapa = {};
-  actuales.forEach((f) => {
-    const s = String(f[0] || '').trim();
-    if (s) mapa[s] = f;
-  });
-  filas.forEach((f) => {
-    const s = String(f.serial || '').trim();
-    if (!s) return;
-    mapa[s] = [s, f.estado || 'PENDIENTE', f.edificio || '', f.piso || '', f.oficina || '',
-      f.tipo || '', f.observaciones || '', f.tecnico || '', Number(f.horas || 0),
-      f.fecha || '', f.semestre || ''];
-  });
-  if (ultima > 1) hoja.getRange(2, 1, ultima - 1, COL_ESTADOS.length).clearContent();
-  const valores = Object.keys(mapa).map((k) => mapa[k]);
-  if (valores.length) hoja.getRange(2, 1, valores.length, COL_ESTADOS.length).setValues(valores);
-  return valores;
-}
-
-function detectarColumnas(hoja, datos) {
-  const cols = datos || {};
-  const ancho = Math.max(hoja.getLastColumn(), 12);
-  const maxFilas = Math.min(hoja.getLastRow(), 15);
-  let filaEnc = 1;
-
-  for (let r = 1; r <= maxFilas; r++) {
-    const valores = hoja.getRange(r, 1, 1, ancho).getValues()[0];
-    if (valores.some((v) => /serial/i.test(String(v || '')))) { filaEnc = r; break; }
-  }
-
-  const encontradas = {};
-  hoja.getRange(filaEnc, 1, 1, ancho).getValues()[0].forEach((valor, i) => {
-    const texto = String(valor || '');
-    for (const clave in PATRONES) {
-      if (PATRONES[clave].test(texto) && !encontradas[clave]) encontradas[clave] = i + 1;
-    }
-  });
-
-  const en = (clave, defecto) =>
-    encontradas[clave] || (typeof cols[clave] === 'number' ? cols[clave] + 1 : defecto);
-
-  return {
-    filaEncabezado: filaEnc,
-    edificio: en('edificio', 1), piso: en('piso', 2), oficina: en('oficina', 3),
-    serial: en('serial', 4), tipo: en('tipo', 5), programada: en('programada', 6),
-    ejecutada: en('ejecutada', 7), tecnico: en('tecnico', 8), semestre: en('semestre', 9),
-    duracion: en('duracion', 10), seguimiento: en('seguimiento', 11), observaciones: en('observaciones', 12),
-  };
+function jsonp(callback, obj) {
+  return ContentService.createTextOutput(callback + '(' + JSON.stringify(obj) + ');')
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
 function doPost(e) {
@@ -132,110 +65,185 @@ function doPost(e) {
     const id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
     if (!id) return respuesta({ ok: false, error: 'Ejecuta setup() primero' });
     const ss = SpreadsheetApp.openById(id);
-    const filas = data.filas || [];
     const lock = LockService.getScriptLock();
     lock.waitLock(30000);
-
-    // La misma pestaña que el usuario eligió al subir el Excel (2026-B, 2026-A, ...).
-    const nombreHoja = String(data.hoja || '').trim() || 'Informe';
-    let hoja = ss.getSheetByName(nombreHoja);
-    if (!hoja) {
-      hoja = ss.insertSheet(nombreHoja);
-      hoja.appendRow(HEADERS);
-    }
-    const cambios = preparar(ss, 'Cambios', ['FECHA', 'SERIAL', 'TIPO', 'EDIFICIO', 'PISO', 'OFICINA', 'OBSERVACIONES', 'TÉCNICO']);
-    const resumen = preparar(ss, 'Resumen', ['ITEM', 'VALOR']);
-
-    const col = detectarColumnas(hoja, data.columnas);
-    const filaEnc = col.filaEncabezado;
-    const ultima = Math.max(hoja.getLastRow(), filaEnc);
-
-    // El cronograma tiene columnas combinadas (G2:G21, K2:K21...). Se separan
-    // solo en las columnas que se escriben, para poder poner un valor por equipo.
-    if (ultima > filaEnc) {
-      [col.edificio, col.piso, col.oficina, col.ejecutada, col.tecnico,
-        col.semestre, col.duracion, col.observaciones, col.seguimiento].forEach((c) => {
-        try { hoja.getRange(filaEnc + 1, c, ultima - filaEnc, 1).breakApart(); } catch (err) {}
-      });
-    }
-
-    // Mapa serial -> fila real del Sheet. Así se respeta el orden del cronograma
-    // aunque el Excel y el Sheet estén ordenados distinto.
-    const seriales = hoja.getRange(filaEnc + 1, col.serial, Math.max(ultima - filaEnc, 0), 1).getValues();
-    const porSerial = {};
-    seriales.forEach((fila, i) => {
-      const clave = String(fila[0] || '').trim();
-      if (clave) porSerial[clave] = filaEnc + 1 + i;
-    });
-    let filaLibre = ultima + 1; // equipos dados de alta que no estaban en el Sheet
-
-    const registrados = filas.filter((f) => f.estado && f.estado !== 'PENDIENTE');
-    registrados.forEach((f) => {
-      const clave = String(f.serial || '').trim();
-      const fila = porSerial[clave] || filaLibre++;
-      // Escribimos columna por columna: si el cronograma tiene celdas combinadas
-      // en otras columnas, un setValues de toda la fila fallaría y no se guardaría nada.
-      const campos = [
-        [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
-        [col.serial, f.serial], [col.tipo, f.tipo],
-        // FECHA PROGRAMADA se deja como estaba en el Sheet.
-        [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
-        [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
-        [col.observaciones, f.observaciones],
-      ];
-      campos.forEach((par) => {
-        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
-      });
-      // Solo cambia el fondo; el número de inventario queda en negro.
-      try {
-        hoja.getRange(fila, col.serial)
-          .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
-          .setFontColor('#000000');
-      } catch (err) {}
-    });
-
-    // Acumulamos TODOS los estados (de a un equipo o de la jornada completa).
-    const todos = upsertEstados(ss, filas);
-
-    // Cambios: altas, reasignaciones y no encontrados (se recalcula con cada envío).
-    const camb = todos.filter((v) => v[1] === 'ALTA' || v[1] === 'AUSENTE').map((v) => [
-      v[9] || new Date().toISOString(), v[0],
-      v[1] === 'ALTA' ? 'OTRA DEPENDENCIA / NUEVO' : 'NO ENCONTRADO',
-      v[2], v[3], v[4], v[6], v[7],
-    ]);
-    if (cambios.getLastRow() > 1) cambios.getRange(2, 1, cambios.getLastRow() - 1, 8).clearContent();
-    if (camb.length) cambios.getRange(2, 1, camb.length, 8).setValues(camb);
-
-    // Resumen: se reconstruye desde el acumulado, no se pierde con envíos parciales.
-    const conteo = { OK: 0, NOVEDAD: 0, AUSENTE: 0, ALTA: 0, PENDIENTE: 0 };
-    let horas = 0;
-    todos.forEach((v) => { conteo[v[1]] = (conteo[v[1]] || 0) + 1; horas += Number(v[8] || 0); });
-    const registradosUnicos = todos.filter((v) => v[1] !== 'PENDIENTE').length;
-    const total = Number(data.total || registradosUnicos);
-    const filasRes = [
-      ['Hoja', nombreHoja], ['Jornada', data.jornada || ''], ['Técnico', data.tecnico || ''],
-      ['Generado', data.fecha || ''], ['OK', conteo.OK], ['Novedad', conteo.NOVEDAD],
-      ['No encontrado', conteo.AUSENTE], ['Cambio de dependencia / nuevo', conteo.ALTA],
-      ['Pendientes', Math.max(total - registradosUnicos, 0)], ['Total horas', horas],
-      ['Fecha ejecución', 'Automática'], ['Fecha seguimiento', 'En blanco'],
-    ];
-    if (resumen.getLastRow() > 1) resumen.getRange(2, 1, resumen.getLastRow() - 1, 2).clearContent();
-    resumen.getRange(2, 1, filasRes.length, 2).setValues(filasRes);
-
+    let res;
+    if (data.modo === 'cargar') res = cargarCronograma(ss, data);
+    else res = escribirEstados(ss, data);
     lock.releaseLock();
-    return respuesta({ ok: true, hoja: nombreHoja, modo: data.modo || 'fila',
-      recibidas: filas.length, escritas: registrados.length, acumuladas: todos.length });
+    return respuesta(res);
   } catch (err) {
     try { LockService.getScriptLock().releaseLock(); } catch (_) {}
     return respuesta({ ok: false, error: String(err) });
   }
 }
 
-/**
- * Lectura para la app. La app usa JSONP (<script>) porque Apps Script no
- * envía cabeceras CORS: así puede traer los cambios del Sheet.
- * URL: .../exec?token=...&hoja=2026-B&callback=__prevPull
- */
+/** Reemplaza por completo el spreadsheet con la hoja tal cual la subió el usuario. */
+function cargarCronograma(ss, data) {
+  const nombre = String(data.hoja || '').trim() || 'Cronograma';
+  // Si ya existe una hoja con ese nombre, le cambiamos el nombre para poder borrarla.
+  ss.getSheets().forEach(function (h, i) {
+    if (h.getName() === nombre) {
+      try { h.setName('__vieja_' + Date.now() + '_' + i); } catch (err) {}
+    }
+  });
+  const hoja = ss.insertSheet(nombre);
+  // Borra TODAS las demás: no quedan hojas viejas ni auxiliares.
+  ss.getSheets().slice().forEach(function (h) {
+    if (h.getSheetId() !== hoja.getSheetId()) {
+      try { ss.deleteSheet(h); } catch (err) {}
+    }
+  });
+
+  const valores = data.valores || [];
+  if (!valores.length) return { ok: false, error: 'El Excel no trae filas' };
+  const nFil = valores.length;
+  let nCol = 1;
+  valores.forEach(function (f) { if (f.length > nCol) nCol = f.length; });
+
+  const vals = [], fondos = [], letras = [], negritas = [], tamanos = [], alineados = [];
+  for (let i = 0; i < nFil; i++) {
+    const fila = valores[i] || [];
+    const rv = [], ff = [], fl = [], fn = [], fs = [], fa = [];
+    for (let j = 0; j < nCol; j++) {
+      const est = (data.estilos && data.estilos[i] && data.estilos[i][j]) || {};
+      let v = fila[j] == null ? '' : fila[j];
+      const tipo = data.tipos && data.tipos[i] && data.tipos[i][j];
+      if (tipo === 'd' && v) {
+        const p = String(v).slice(0, 10).split('-');
+        if (p.length === 3) v = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      }
+      rv.push(v);
+
+      const bg = String(est.bg || '').replace(/^0x/, '').replace(/^FF/, '');
+      ff.push(bg.length === 6 ? '#' + bg : '#ffffff');
+      let fg = String(est.fg || '').replace(/^0x/, '').replace(/^FF/, '');
+      if (fg.length !== 6) fg = esOscuro(bg) ? 'ffffff' : '000000';
+      fl.push('#' + fg);
+      fn.push(est.b ? 'bold' : 'normal');
+      fs.push(Number(est.sz || 10));
+      let al = String(est.al || 'left');
+      if (['left', 'center', 'right'].indexOf(al) < 0) al = 'left';
+      fa.push(al);
+    }
+    vals.push(rv); fondos.push(ff); letras.push(fl);
+    negritas.push(fn); tamanos.push(fs); alineados.push(fa);
+  }
+
+  const rango = hoja.getRange(1, 1, nFil, nCol);
+  rango.setValues(vals);
+  rango.setBackgrounds(fondos);
+  rango.setFontColors(letras);
+  rango.setFontWeights(negritas);
+  rango.setFontSizes(tamanos);
+  rango.setHorizontalAlignments(alineados);
+
+  (data.merges || []).forEach(function (m) {
+    try { hoja.getRange(m[0] + 1, m[1] + 1, m[2] - m[0] + 1, m[3] - m[1] + 1).merge(); } catch (err) {}
+  });
+  (data.cols || []).forEach(function (w, i) {
+    if (w) { try { hoja.setColumnWidth(i + 1, Math.round(w)); } catch (err) {} }
+  });
+  (data.rows || []).forEach(function (h, i) {
+    if (h) { try { hoja.setRowHeight(i + 1, Math.round(h)); } catch (err) {} }
+  });
+  try { hoja.setFrozenRows(Number(data.congelar || 1)); } catch (err) {}
+
+  const aplicadas = aplicarEstados(hoja, data.filas || [], data.columnas);
+  return { ok: true, hoja: nombre, filas: nFil, columnas: nCol,
+    combinaciones: (data.merges || []).length, estadosAplicados: aplicadas };
+}
+
+function esOscuro(hex) {
+  const h = String(hex || '');
+  if (h.length !== 6) return false;
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return false;
+  return (r * 299 + g * 587 + b * 114) / 1000 < 140;
+}
+
+/** Escribe los resultados por equipo en la hoja indicada, sin hojas auxiliares. */
+function escribirEstados(ss, data) {
+  const nombre = String(data.hoja || '').trim() || 'Cronograma';
+  let hoja = ss.getSheetByName(nombre);
+  if (!hoja) { hoja = ss.insertSheet(nombre); hoja.appendRow(HEADERS); }
+  const aplicadas = aplicarEstados(hoja, data.filas || [], data.columnas);
+  return { ok: true, hoja: hoja.getName(), modo: data.modo || 'fila',
+    recibidas: (data.filas || []).length, escritas: aplicadas };
+}
+
+/** Pinta y llena las celdas de cada serial. Descombina solo lo necesario. */
+function aplicarEstados(hoja, filas, columnas) {
+  if (!filas || !filas.length) return 0;
+  const col = detectarColumnas(hoja, columnas);
+  const filaEnc = col.filaEncabezado;
+  const ultima = Math.max(hoja.getLastRow(), filaEnc);
+  if (ultima > filaEnc) {
+    // Se descombinan TODAS las filas de datos: hace falta escribir fecha, horas
+    // y observaciones en cada equipo, aunque el Excel viniera con columnas combinadas.
+    const ancho = Math.max(hoja.getLastColumn(), 12);
+    try { hoja.getRange(filaEnc + 1, 1, ultima - filaEnc, ancho).breakApart(); } catch (err) {}
+  }
+  const seriales = hoja.getRange(filaEnc + 1, col.serial, Math.max(ultima - filaEnc, 0), 1).getValues();
+  const porSerial = {};
+  seriales.forEach(function (f, i) {
+    const k = String(f[0] || '').trim();
+    if (k) porSerial[k] = filaEnc + 1 + i;
+  });
+  let libre = ultima + 1;
+  const registrados = filas.filter(function (f) { return f.estado && f.estado !== 'PENDIENTE'; });
+  registrados.forEach(function (f) {
+    const clave = String(f.serial || '').trim();
+    const fila = porSerial[clave] || libre++;
+    const campos = [
+      [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
+      [col.serial, f.serial], [col.tipo, f.tipo],
+      // FECHA PROGRAMADA no se toca.
+      [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
+      [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
+      [col.observaciones, f.observaciones],
+    ];
+    campos.forEach(function (par) {
+      try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
+    });
+    try {
+      hoja.getRange(fila, col.serial)
+        .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
+        .setFontColor('#000000');
+    } catch (err) {}
+  });
+  return registrados.length;
+}
+
+function detectarColumnas(hoja, datos) {
+  const cols = datos || {};
+  const ancho = Math.max(hoja.getLastColumn(), 12);
+  const maxFilas = Math.min(hoja.getLastRow(), 15);
+  let filaEnc = 1;
+  for (let r = 1; r <= maxFilas; r++) {
+    const valores = hoja.getRange(r, 1, 1, ancho).getValues()[0];
+    if (valores.some(function (v) { return /serial/i.test(String(v || '')); })) { filaEnc = r; break; }
+  }
+  const encontradas = {};
+  hoja.getRange(filaEnc, 1, 1, ancho).getValues()[0].forEach(function (valor, i) {
+    const texto = String(valor || '');
+    for (const clave in PATRONES) {
+      if (PATRONES[clave].test(texto) && !encontradas[clave]) encontradas[clave] = i + 1;
+    }
+  });
+  const en = function (clave, defecto) {
+    return encontradas[clave] || (typeof cols[clave] === 'number' ? cols[clave] + 1 : defecto);
+  };
+  return {
+    filaEncabezado: filaEnc,
+    edificio: en('edificio', 1), piso: en('piso', 2), oficina: en('oficina', 3),
+    serial: en('serial', 4), tipo: en('tipo', 5), programada: en('programada', 6),
+    ejecutada: en('ejecutada', 7), tecnico: en('tecnico', 8), semestre: en('semestre', 9),
+    duracion: en('duracion', 10), seguimiento: en('seguimiento', 11), observaciones: en('observaciones', 12),
+  };
+}
+
+/** Lectura para la app mediante JSONP (Apps Script no envía CORS). */
 function doGet(e) {
   const p = e.parameter || {};
   const cb = /^[A-Za-z_$][\w$]*$/.test(String(p.callback || '')) ? String(p.callback) : 'prevPull';
@@ -245,7 +253,7 @@ function doGet(e) {
     if (!id) return jsonp(cb, { ok: false, error: 'Ejecuta setup() primero' });
     const ss = SpreadsheetApp.openById(id);
     const nombre = String(p.hoja || '').trim();
-    const hoja = nombre ? ss.getSheetByName(nombre) : null;
+    const hoja = ss.getSheetByName(nombre);
     if (!hoja) return jsonp(cb, { ok: false, error: 'No existe la hoja ' + nombre });
 
     const col = detectarColumnas(hoja, null);
@@ -281,13 +289,4 @@ function doGet(e) {
   } catch (err) {
     return jsonp(cb, { ok: false, error: String(err) });
   }
-}
-
-function jsonp(callback, obj) {
-  return ContentService.createTextOutput(callback + '(' + JSON.stringify(obj) + ');')
-    .setMimeType(ContentService.MimeType.JAVASCRIPT);
-}
-
-function respuesta(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }

@@ -80,29 +80,43 @@ Todo queda guardado en el teléfono; sincroniza cuando tengas internet si config
 
 1. Abre **la hoja de Google Sheets donde quieres el informe** (puede ser la del cronograma) → **Extensiones → Apps Script**. Eso asocia el script a ese archivo. Si lo creas en <https://script.google.com> como proyecto independiente, `setup()` creará un spreadsheet nuevo.
 2. Borra el `myFunction()` que aparece y pega todo `apps-script/Code.gs`. Guarda.
-3. En el selector de funciones elige `setup()` y pulsa **Ejecutar**. Autoriza (Revisar permisos → Configuración avanzada → Ir al proyecto). Se crearán las pestañas auxiliares `Cambios`, `Resumen` y `_estados` (oculta; guarda el estado de cada serial para los envíos parciales).
+3. En el selector de funciones elige `setup()` y pulsa **Ejecutar**. Autoriza (Revisar permisos → Configuración avanzada → Ir al proyecto). `setup()` solo guarda el ID del Sheet: **no crea hojas auxiliares**.
 4. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier persona con el enlace**. Copia la URL `https://script.google.com/macros/s/.../exec`.
 5. En la app (APK) ve a **Datos** → pega la URL en *URL del Web App*, confirma la clave `udes2026` (si la cambias, cámbiala también en `TOKEN` de `Code.gs`) y escribe tu nombre en *Técnico* → **Guardar datos**.
+
+### Al subir el cronograma
+
+Con la URL guardada, al elegir la hoja del Excel la app:
+
+1. **Borra TODAS las hojas** que tenga actualmente el Google Sheet.
+2. Crea **una sola hoja** con el nombre de la hoja elegida (por ejemplo `2026-B`).
+3. Copia la hoja **tal cual**: valores, fechas, colores de fondo, contraste de fuente, celdas combinadas del encabezado, anchos de columna, altos de fila y fila congelada.
+4. Aplica encima los estados ya registrados en el teléfono.
+
+Si no hay internet en ese momento, la carga queda pendiente y se hace automáticamente al volver la señal o al guardar la configuración.
+
+> Las columnas de las filas de datos se descombinan para poder escribir la fecha, las horas y la observaciones de **cada** equipo. El resto del formato se conserva.
 
 ### Sincronización automática (bidireccional)
 
 Con la URL guardada:
 
-- **Al dar *Guardar y seguir*** (o dar de alta un equipo) se envía **solo ese registro**.
-- **Al abrir la APK**, **al volver la señal** y **cada 5 minutos**, la app envía la jornada completa y **trae los cambios** del Sheet.
+- **Al dar *Guardar y seguir*** (o dar de alta un equipo) se envía **solo ese registro** y se trae lo último del Sheet.
+- **Al escanear o buscar un serial** se reenvían pendientes y se traen cambios.
+- **Al abrir la APK**, **al volver la señal**, **al volver del background** y **cada 2 minutos**, la app envía la jornada completa y **trae los cambios** del Sheet.
 
-El script busca el número de inventario en la pestaña que elegiste al subir el Excel (por ejemplo `2026-B`) y:
+El script busca el número de inventario en la pestaña creada y:
 
 - pinta la celda del serial con el color del estado (verde/ámbar/rojo/azul);
 - deja el **número en negro**;
 - escribe fecha ejecutada, técnico, semestre, horas y observaciones;
 - deja `FECHA SEGUIMIENTO` vacío y conserva `FECHA PROGRAMADA`.
 
-Al traer cambios, gana el registro **más reciente** (se compara la fecha). La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*. Si ves muchos **con color** y pocos **con datos**, el Sheet tiene los colores del cronograma pero aún no se han escrito los valores: ejecuta **Sincronizar ahora** y vuelve a revisar.
+Al traer cambios, gana el registro **más reciente** (se compara la fecha). La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*.
 
 Si no hay internet, el registro queda en cola en el teléfono y se envía solo al volver la señal. La pestaña **Datos** muestra cuántos registros faltan por enviar.
 
-> La app no lee el Sheet con CORS directo: usa JSONP (`<script>`) porque Apps Script no envía cabeceras CORS. Por eso el despliegue debe ser **"Cualquier persona con el enlace"** y el token debe coincidir. Si antes habías sincronizado con la versión anterior, puedes borrar la pestaña vieja `Informe`; ya no se usa.
+> La app no lee el Sheet con CORS directo: usa JSONP (`<script>`) porque Apps Script no envía cabeceras CORS. Por eso el despliegue debe ser **"Cualquier persona con el enlace"** y el token debe coincidir. Las hojas viejas `Informe`, `Cambios`, `Resumen` y `_estados` ya no se usan: se eliminan al subir el cronograma.
 
 ## 6) Etiquetas
 
