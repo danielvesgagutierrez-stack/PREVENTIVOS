@@ -94,9 +94,9 @@ GitHub Actions **no tiene un botón mágico** para compilar APK: solo ejecuta fl
 
 ### Opción A: GitHub Actions (APK con Capacitor)
 
-1. Sube a GitHub estos dos archivos nuevos:
-   - `.github/workflows/build-apk.yml`
-   - `tools/patch_android.py`
+1. Sube a GitHub **un solo archivo**: `.github/workflows/build-apk.yml`.
+   - Si tu editor no muestra carpetas ocultas, crea el archivo desde la web: **Add file → Create new file** y en el nombre escribe literalmente `.github/workflows/build-apk.yml`.
+   - Debe quedar en la **raíz del repositorio** y en la rama por defecto (`main`/`master`). Si subiste toda la app dentro de una carpeta `preventivos-app/`, el workflow también la detecta.
 2. En GitHub entra a la pestaña **Actions**.
 3. A la izquierda selecciona **Compilar APK** → botón **Run workflow** → **Run workflow**.
 4. Espera 3-6 minutos. Al terminar, en la ejecución aparece **Artifacts → preventivos-apk**.
