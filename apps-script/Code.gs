@@ -172,18 +172,18 @@ function escribirEstados(ss, data) {
     recibidas: (data.filas || []).length, escritas: aplicadas };
 }
 
-/** Pinta y llena las celdas de cada serial. Descombina solo lo necesario. */
+/** Pinta y llena SOLO los equipos realmente registrados. No toca el resto. */
 function aplicarEstados(hoja, filas, columnas) {
-  if (!filas || !filas.length) return 0;
+  const registrados = (filas || []).filter(function (f) {
+    return f.estado && f.estado !== 'PENDIENTE';
+  });
+  // Nada de registros = nada de cambios. Así el formato original se mantiene
+  // intacto mientras se entra/sale de la app o corre el auto-sync.
+  if (!registrados.length) return 0;
+
   const col = detectarColumnas(hoja, columnas);
   const filaEnc = col.filaEncabezado;
   const ultima = Math.max(hoja.getLastRow(), filaEnc);
-  if (ultima > filaEnc) {
-    // Se descombinan TODAS las filas de datos: hace falta escribir fecha, horas
-    // y observaciones en cada equipo, aunque el Excel viniera con columnas combinadas.
-    const ancho = Math.max(hoja.getLastColumn(), 12);
-    try { hoja.getRange(filaEnc + 1, 1, ultima - filaEnc, ancho).breakApart(); } catch (err) {}
-  }
   const seriales = hoja.getRange(filaEnc + 1, col.serial, Math.max(ultima - filaEnc, 0), 1).getValues();
   const porSerial = {};
   seriales.forEach(function (f, i) {
@@ -191,10 +191,18 @@ function aplicarEstados(hoja, filas, columnas) {
     if (k) porSerial[k] = filaEnc + 1 + i;
   });
   let libre = ultima + 1;
-  const registrados = filas.filter(function (f) { return f.estado && f.estado !== 'PENDIENTE'; });
-  registrados.forEach(function (f) {
+  const ancho = Math.max(hoja.getLastColumn(), 12);
+  const destinos = registrados.map(function (f) {
     const clave = String(f.serial || '').trim();
-    const fila = porSerial[clave] || libre++;
+    return { f: f, fila: porSerial[clave] || libre++ };
+  });
+
+  // Se descombinan únicamente las filas que se van a escribir.
+  destinos.forEach(function (d) {
+    try { hoja.getRange(d.fila, 1, 1, ancho).breakApart(); } catch (err) {}
+  });
+  destinos.forEach(function (d) {
+    const f = d.f, fila = d.fila;
     const campos = [
       [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
       [col.serial, f.serial], [col.tipo, f.tipo],
@@ -212,7 +220,7 @@ function aplicarEstados(hoja, filas, columnas) {
         .setFontColor('#000000');
     } catch (err) {}
   });
-  return registrados.length;
+  return destinos.length;
 }
 
 function detectarColumnas(hoja, datos) {

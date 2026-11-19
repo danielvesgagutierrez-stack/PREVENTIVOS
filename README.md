@@ -91,11 +91,11 @@ Con la URL guardada, al elegir la hoja del Excel la app:
 1. **Borra TODAS las hojas** que tenga actualmente el Google Sheet.
 2. Crea **una sola hoja** con el nombre de la hoja elegida (por ejemplo `2026-B`).
 3. Copia la hoja **tal cual**: valores, fechas, colores de fondo, contraste de fuente, celdas combinadas del encabezado, anchos de columna, altos de fila y fila congelada.
-4. Aplica encima los estados ya registrados en el teléfono.
+4. Aplica encima **únicamente** los equipos que registraste con *Guardar y seguir* (al subir un cronograma nuevo el progreso se reinicia).
 
 Si no hay internet en ese momento, la carga queda pendiente y se hace automáticamente al volver la señal o al guardar la configuración.
 
-> Las columnas de las filas de datos se descombinan para poder escribir la fecha, las horas y la observaciones de **cada** equipo. El resto del formato se conserva.
+> Las filas que no has registrado **no se tocan**: no se les escribe fecha, horas, observaciones ni color. Por eso el diseño deja de cambiar cada vez que entras o se corre el auto-sync. Solo se descombinan las filas que sí se registraron.
 
 ### Sincronización automática (bidireccional)
 

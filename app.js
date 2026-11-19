@@ -494,6 +494,7 @@
       horasTexto: datos.horasTexto || horasTexto(datos.horas),
       fecha: hoy() + ' ' + hora().slice(11),
       tecnico: datos.tecnico || state.config.tecnico || jornada()?.tecnico || '',
+      registrado: true, // solo lo que el usuario grabó con Guardar y seguir
       ...(datos.extra || {}),
     };
     guardarProgreso();
@@ -707,6 +708,8 @@
       guardarDataset(); escribir(K.archivo, state.archivoMeta);
       state.jornadaId = state.data.jornadas[0].id;
       escribir(K.jornada, state.jornadaId);
+      state.progress[state.jornadaId] = {}; // cronograma nuevo: parte sin registros
+      guardarProgreso();
       toast(`Hoja "${nombre}": ${state.data.resumen.equiposUnicos} equipos. Subiendo a Sheets...`);
       await subirCronograma(nombre);
       go('#/inicio'); location.reload();
@@ -913,8 +916,11 @@
     XLSX.writeFile(wb, `control_${j.id}_${hoy()}.xlsx`); toast('Planilla de control descargada');
   }
 
-  function filaPayload(i, pr, j) {
-    const est = pr?.estado || i.estado || 'PENDIENTE';
+  function filaPayload(i, pr, j, soloRegistrados) {
+    // En los envíos al Sheet solo cuenta lo que se grabó en el teléfono.
+    // El color verde del Excel original NO significa que el equipo fue ejecutado.
+    const est = soloRegistrados ? (pr?.registrado ? pr.estado : 'PENDIENTE')
+      : (pr?.estado || i.estado || 'PENDIENTE');
     return { serial: i.serial, estado: est, edificio: i.edificio, piso: i.piso, oficina: i.oficina,
       tipo: i.tipo, programada: i.programada || '', semestre: i.semestre || j.semestre || '',
       fecha: est === 'PENDIENTE' ? '' : (pr?.fecha || hoy()),
@@ -936,7 +942,7 @@
   /** Filas con el estado actual, para aplicarlas encima del cronograma recién subido. */
   function filasActuales() {
     const j = jornada(); if (!j) return [];
-    return items().map((i) => filaPayload(i, progreso(j.id, i.serial), j));
+    return items().map((i) => filaPayload(i, progreso(j.id, i.serial), j, true));
   }
 
   /** Convierte la hoja original del Excel en un payload que Apps Script puede recrear. */
@@ -1016,7 +1022,7 @@
       await postSheet(url, JSON.stringify({ token: state.config.token,
         hoja: nombreHoja(), jornada: j.id, fecha: hora(),
         tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
-        total: items().length, modo: 'fila', filas: [filaPayload(item, progreso(j.id, serial), j)] }));
+        total: items().length, modo: 'fila', filas: [filaPayload(item, progreso(j.id, serial), j, true)] }));
       limpiarPendiente(serial);
       return true;
     } catch (e) { marcarPendiente(serial); return false; }
@@ -1068,6 +1074,7 @@
         horasTexto: norm(f.horasTexto) || horasTexto(pr?.horas || 1),
         fecha: norm(f.fecha) || (hoy() + ' ' + hora().slice(11)),
         tecnico: f.tecnico || state.config.tecnico || j.tecnico || '',
+        registrado: pr?.registrado || false,
       };
       item.estado = f.estado;
       item.novedad = state.progress[j.id][f.serial].novedad;
@@ -1094,7 +1101,7 @@
     const cfgUrl = url;
     const cfgToken = $('#cfgToken')?.value ?? state.config.token;
     const j = jornada(); const col = columnas();
-    const filas = items().map((i) => filaPayload(i, progreso(j.id, i.serial), j));
+    const filas = items().map((i) => filaPayload(i, progreso(j.id, i.serial), j, true));
     let ok = false, msg = '';
     try {
       await postSheet(cfgUrl, JSON.stringify({ token: cfgToken,
