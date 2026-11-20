@@ -377,14 +377,12 @@
     const pr = progreso(state.jornadaId, serial) || {};
     const nota = pr.novedad || item.novedad || '';
     const h = horasDe(item);
-    const distinto = state.areaActual && state.areaActual !== item.areaId;
     const extraVisible = ['NOVEDAD', 'AUSENTE', 'ALTA'].includes(state.seleccion);
     return `
-      ${distinto ? `<div class="alerta">⚠️ En la hoja aparece en <b>${esc(areaNombre(item.areaId))}</b>. Si lo encontraste aquí, márcalo en azul para reflejar el cambio de dependencia.</div>` : ''}
       <div class="card">
         <div class="row spread"><div class="serial-grande">${esc(serial)}</div>${chip(actual)}</div>
         <div class="small muted mt">${esc(item.tipo || 'Tipo no indicado')}</div>
-        <div class="small">${esc(item.oficina || '')} · ${esc(item.piso || '')} · ${esc(item.edificio || '')}</div>
+        <div class="small"><b>En la hoja:</b> ${esc(item.oficina || '')} · ${esc(item.piso || '')} · ${esc(item.edificio || '')}</div>
         <div class="tiny muted mt">Programada: ${esc(item.programada || '—')} · Técnico: ${esc(item.tecnico || '—')} · Fila ${item.filaExcel || '—'}</div>
       </div>
       <div class="card"><h2>¿Qué encontraste?</h2>
@@ -420,7 +418,7 @@
     const actual = areas().find((a) => a.id === state.areaActual);
     const edInicial = actual?.edificio || eds[0];
     return `<div class="card"><h3 class="mono">${esc(serial)}</h3>
-      <p class="small muted">Se agregará en <b>azul</b> a la dependencia que elijas.</p>
+      <p class="small muted">Este serial no está en el cronograma. Elige la <b>dependencia donde lo encontraste</b>; se agregará en azul junto a los equipos de esa área.</p>
       <label class="campo" for="altaEd">Edificio</label>
       <select class="campo" id="altaEd" data-act="alta-ed">${eds.map((e) => `<option ${e === edInicial ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select>
       <label class="campo" for="altaArea">Dependencia</label>

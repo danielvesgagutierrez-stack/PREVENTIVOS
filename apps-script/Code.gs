@@ -201,64 +201,111 @@ function aplicarEstados(hoja, filas, columnas) {
 
   const col = detectarColumnas(hoja, columnas);
   const filaEnc = col.filaEncabezado;
-  const ultima = Math.max(hoja.getLastRow(), filaEnc);
-  const nDatos = Math.max(ultima - filaEnc, 0);
   const ancho = Math.max(hoja.getLastColumn(), 12);
-
-  // Mapa de serial -> fila y de área -> última fila, para ubicar altas y reasignaciones.
-  const seriales = nDatos ? hoja.getRange(filaEnc + 1, col.serial, nDatos, 1).getValues() : [];
   const anchoArea = Math.max(col.edificio, col.piso, col.oficina);
-  const areaVals = nDatos ? hoja.getRange(filaEnc + 1, 1, nDatos, anchoArea).getValues() : [];
-  const porSerial = {}, ultimaFilaArea = {};
-  for (let i = 0; i < seriales.length; i++) {
-    const fila = filaEnc + 1 + i;
-    const k = String(seriales[i][0] || '').trim();
-    if (k) porSerial[k] = fila;
-    const zona = [areaVals[i][col.edificio - 1], areaVals[i][col.piso - 1], areaVals[i][col.oficina - 1]]
-      .map(normZona).join('|');
-    if (zona.replace(/\|/g, '')) ultimaFilaArea[zona] = fila;
+
+  /**
+   * Serial -> fila y área -> ÚLTIMA fila real de esa área.
+   * Las columnas combinadas (A2:A50, C2:C20...) solo guardan el valor en la
+   * primera fila; se rellena hacia abajo para conocer el área de CADA fila.
+   * Se recalcula antes de cada inserción porque insertRowsAfter corre las filas.
+   */
+  function mapaActual() {
+    const ultima = Math.max(hoja.getLastRow(), filaEnc);
+    const n = Math.max(ultima - filaEnc, 0);
+    const todo = n ? hoja.getRange(filaEnc + 1, 1, n, ancho).getValues() : [];
+    const porSerial = {}, ultimaZona = {}, vacias = {};
+    let ed = '', pi = '', of = '';
+    for (let i = 0; i < n; i++) {
+      const fila = filaEnc + 1 + i;
+      const vE = normZona(todo[i][col.edificio - 1]);
+      const vP = normZona(todo[i][col.piso - 1]);
+      const vO = normZona(todo[i][col.oficina - 1]);
+      if (vE) ed = vE;
+      if (vP) pi = vP;
+      if (vO) of = vO;
+      const zona = [ed, pi, of].join('|');
+      if (zona.replace(/\|/g, '')) ultimaZona[zona] = fila;
+      const k = String(todo[i][col.serial - 1] || '').replace(/\D/g, '');
+      if (k) porSerial[k] = fila;
+      else if (todo[i].every(function (v) { return !String(v || '').trim(); })) {
+        // Fila que un sync anterior dejó en blanco: se reutiliza en vez de
+        // insertar otra (evita el "doble celda" al guardar de nuevo).
+        if (!vacias[zona]) vacias[zona] = [];
+        vacias[zona].push(fila);
+      }
+    }
+    return { porSerial: porSerial, ultimaZona: ultimaZona, vacias: vacias, ultima: ultima };
   }
   const zonaDe = function (f) {
     return [f.edificio, f.piso, f.oficina].map(normZona).join('|');
   };
+  const claveSerial = function (v) { return String(v || '').replace(/\D/g, ''); };
+  const COLS_ESCRITAS = [col.edificio, col.piso, col.oficina, col.serial, col.tipo,
+    col.ejecutada, col.tecnico, col.semestre, col.duracion, col.seguimiento, col.observaciones];
 
   function escribir(f, fila) {
+    function aplicar() {
+      const campos = [
+        [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
+        [col.serial, f.serial], [col.tipo, f.tipo],
+        // FECHA PROGRAMADA no se toca.
+        [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
+        [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
+        [col.observaciones, f.observaciones],
+      ];
+      campos.forEach(function (par) {
+        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
+      });
+      try {
+        hoja.getRange(fila, col.serial)
+          .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
+          .setFontColor('#000000');
+      } catch (err) {}
+    }
+
+    // 1) Romper solo la fila respeta el formato del resto del cronograma.
     try { hoja.getRange(fila, 1, 1, ancho).breakApart(); } catch (err) {}
-    const campos = [
-      [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
-      [col.serial, f.serial], [col.tipo, f.tipo],
-      // FECHA PROGRAMADA no se toca.
-      [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
-      [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
-      [col.observaciones, f.observaciones],
-    ];
-    campos.forEach(function (par) {
-      try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
-    });
-    try {
-      hoja.getRange(fila, col.serial)
-        .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
-        .setFontColor('#000000');
-    } catch (err) {}
+    aplicar();
+
+    // 2) Verificar de verdad: si el serial no quedó escrito, la celda sigue
+    //    atrapada en una combinación vertical. Rompemos TODAS las columnas
+    //    que se escriben y repetimos. Sin esto la fila queda en blanco y el
+    //    siguiente guardado inserta otra fila (doble celda).
+    const eco = claveSerial(hoja.getRange(fila, col.serial).getValue());
+    if (eco !== claveSerial(f.serial)) {
+      const ultima = Math.max(hoja.getLastRow(), fila, filaEnc);
+      const n = Math.max(ultima - filaEnc, 0);
+      COLS_ESCRITAS.forEach(function (c) {
+        try { hoja.getRange(filaEnc + 1, c, n, 1).breakApart(); } catch (err) {}
+      });
+      aplicar();
+    }
   }
 
-  // 1) Existentes: se escriben en su fila (no se mueven).
+  // 1) Existentes: sus filas NO cambian. Se escriben ANTES de insertar nada,
+  //    para que el color y los datos caigan en el serial correcto.
+  const mapa = mapaActual();
   const existentes = [], nuevos = [];
   registrados.forEach(function (f) {
-    const k = String(f.serial || '').trim();
-    (porSerial[k] ? existentes : nuevos).push(porSerial[k] ? { f: f, fila: porSerial[k] } : f);
+    const k = claveSerial(f.serial);
+    if (mapa.porSerial[k]) existentes.push({ f: f, fila: mapa.porSerial[k] });
+    else nuevos.push(f);
   });
   existentes.forEach(function (d) { escribir(d.f, d.fila); });
 
-  // 2) Nuevos: se insertan JUSTO DESPUÉS de la última fila de su área.
-  //    De atrás hacia adelante para que los insert no corran los destinos ya calculados.
-  nuevos.map(function (f) {
+  // 2) Nuevos: primero reutilizan una fila vacía que haya dejado un sync
+  //    anterior; si no la hay, se insertan JUSTO DESPUÉS de la última fila de
+  //    su área (junto a Antiguo Masira, no al final). Se recalcula el mapa en
+  //    cada inserción para no escribir nunca sobre índices viejos.
+  nuevos.forEach(function (f) {
+    const m = mapaActual();
     const zona = zonaDe(f);
-    return { f: f, zona: zona, base: ultimaFilaArea[zona] || ultima };
-  }).sort(function (a, b) { return b.base - a.base; }).forEach(function (d) {
-    hoja.insertRowsAfter(d.base, 1);
-    ultimaFilaArea[d.zona] = d.base + 1;
-    escribir(d.f, d.base + 1);
+    const libre = (m.vacias[zona] || [])[0];
+    if (libre) { escribir(f, libre); return; }
+    const base = m.ultimaZona[zona] || m.ultima;
+    hoja.insertRowsAfter(base, 1);
+    escribir(f, base + 1);
   });
 
   return registrados.length;

@@ -20,7 +20,10 @@ App para el celular que reemplaza el "pintar de colores" en el Excel.
 - **Cambio de dependencia:** si escaneas en un área distinta a la que aparece en la hoja, la app te avisa; al marcar en azul actualiza edificio/piso/oficina en el informe.
 - Se conservan las columnas A-L del archivo original y se colorea el número de inventario según el estado.
 - **Número de inventario en negro:** el fondo de la celda toma el color del estado, pero la fuente siempre se fuerza a negro (tanto al subir el cronograma como al guardar).
-- **Equipos nuevos en su área:** al dar de alta o reasignar, el equipo se inserta justo después del último registro de su misma dependencia (por ejemplo junto a *Antiguo Masira*), no al final.
+- **Equipos nuevos en su área:** al dar de alta o reasignar, el equipo se inserta justo después del último registro de su misma dependencia (por ejemplo junto a *Antiguo Masira*), no al final. El JS calcula el final real de cada área incluso cuando edificio/piso/oficina vienen en celdas combinadas verticalmente, y rellena todos los datos del alta (serial, tipo, fecha, horas, observaciones y color) en la fila nueva.
+- **Escritura verificada:** después de escribir, el backend vuelve a leer la celda del serial. Si no quedó grabado (celda atrapada en una combinación vertical), rompe las combinaciones de todas las columnas que se escriben y repite la escritura. Así el color y los datos no se pierden silenciosamente.
+- **Sin filas dobles:** si un sync anterior dejó una fila en blanco, el siguiente registro la reutiliza en vez de insertar otra. Tampoco se inserta nada al escanear/buscar un serial que ya está registrado.
+- **Escanear no depende del "área actual":** al leer un código la app solo consulta si el serial está en el cronograma y muestra a qué área pertenece según la hoja. Ya no muestra el aviso de "márcalo en azul" por comparar con el área desde la que se entró. Si el serial no está, se ofrece darlo de alta eligiendo la dependencia donde se encontró.
 
 ## Estadísticas y pendientes reales
 
