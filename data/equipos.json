@@ -1,5 +1,5 @@
 {
- "generado": "2026-11-19 14:35",
+ "generado": "2026-11-20 08:53",
  "fuente": "2-CRONOGRAMA 2026 DANIEL.xlsx",
  "hoja": "2026-B",
  "columnas": {
@@ -227,12 +227,6 @@
    "edificio": "GUANE",
    "piso": "PISO 4",
    "oficina": "SALÓN AUDIOVISUALES GUANE 401"
-  },
-  {
-   "id": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-402",
-   "edificio": "GUANE",
-   "piso": "PISO 4",
-   "oficina": "SALÓN AUDIOVISUALES GUANE 402"
   },
   {
    "id": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-403",
@@ -3118,105 +3112,6 @@
    "oficina": "LABORATORIO BIOTECNOLOGÍA",
    "tipo": "TODO EN UNO",
    "serialValido": true
-  },
-  {
-   "serial": "SIN-SERIAL-108",
-   "areaId": "VETERINARIA-PISO-1-PROGRAMA-DE-VETERINARIA-COORDINACION-CLINICA",
-   "edificio": "VETERINARIA",
-   "piso": "PISO 1",
-   "oficina": "PROGRAMA DE VETERINARIA - COORDINACIÓN CLINICA",
-   "tipo": "TODO EN UNO",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-109",
-   "areaId": "VETERINARIA-PISO-1-PROGRAMA-DE-VETERINARIA-COORDINACION-CLINICA",
-   "edificio": "VETERINARIA",
-   "piso": "PISO 1",
-   "oficina": "PROGRAMA DE VETERINARIA - COORDINACIÓN CLINICA",
-   "tipo": "IMPRESORA EN CONVENIO",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-121",
-   "areaId": "CIENCIAS-NATURALES-PISO-1-LABORATORIO-DE-BIOPROCESOS",
-   "edificio": "CIENCIAS NATURALES",
-   "piso": "PISO 1",
-   "oficina": "LABORATORIO DE BIOPROCESOS",
-   "tipo": "PC",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-162",
-   "areaId": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-401",
-   "edificio": "GUANE",
-   "piso": "PISO 4",
-   "oficina": "SALÓN AUDIOVISUALES GUANE 401",
-   "tipo": "PANTALLA INTERACTIVA",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-164",
-   "areaId": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-402",
-   "edificio": "GUANE",
-   "piso": "PISO 4",
-   "oficina": "SALÓN AUDIOVISUALES GUANE 402",
-   "tipo": "PC",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-197",
-   "areaId": "MUISCA-PISO-1-LABORATORIO-DE-PAVIMENTOS-ARMADO",
-   "edificio": "MUISCA",
-   "piso": "PISO 1",
-   "oficina": "LABORATORIO DE PAVIMENTOS ARMADO",
-   "tipo": "PC",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-205",
-   "areaId": "MUISCA-PISO-2-SALA-DE-PROFESORES-INGENIERIA-AMBIENTAL",
-   "edificio": "MUISCA",
-   "piso": "PISO 2",
-   "oficina": "SALA DE PROFESORES INGENIERÍA AMBIENTAL",
-   "tipo": "PC",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-223",
-   "areaId": "MUISCA-PISO-3-FACULTAD-DE-INGENIERIAS",
-   "edificio": "MUISCA",
-   "piso": "PISO 3",
-   "oficina": "FACULTAD DE INGENIERIAS",
-   "tipo": "TODO EN UNO",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-226",
-   "areaId": "MUISCA-PISO-3-FACULTAD-DE-INGENIERIAS",
-   "edificio": "MUISCA",
-   "piso": "PISO 3",
-   "oficina": "FACULTAD DE INGENIERIAS",
-   "tipo": "IMPRESORA EN CONVENIO",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-254",
-   "areaId": "CASA-DE-COLORES-PISO-1-BIENESTAR-UNIVERSITARIO-DIRECCION",
-   "edificio": "CASA DE COLORES",
-   "piso": "PISO 1",
-   "oficina": "BIENESTAR UNIVERSITARIO - DIRECCIÓN",
-   "tipo": "IMPRESORA EN CONVENIO",
-   "serialValido": false
-  },
-  {
-   "serial": "SIN-SERIAL-294",
-   "areaId": "CARARE-ANEXO-PISO-1-SUBPROCESO-DE-TALENTO-HUMANO",
-   "edificio": "CARARE ANEXO",
-   "piso": "PISO 1",
-   "oficina": "SUBPROCESO DE TALENTO HUMANO",
-   "tipo": "IMPRESORA EN CONVENIO",
-   "serialValido": false
   }
  ],
  "jornadas": [
@@ -4926,38 +4821,6 @@
      "serialValido": true
     },
     {
-     "serial": "SIN-SERIAL-108",
-     "areaId": "VETERINARIA-PISO-1-PROGRAMA-DE-VETERINARIA-COORDINACION-CLINICA",
-     "edificio": "VETERINARIA",
-     "piso": "PISO 1",
-     "oficina": "PROGRAMA DE VETERINARIA - COORDINACIÓN CLINICA",
-     "tipo": "TODO EN UNO",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 108,
-     "serialValido": false
-    },
-    {
-     "serial": "SIN-SERIAL-109",
-     "areaId": "VETERINARIA-PISO-1-PROGRAMA-DE-VETERINARIA-COORDINACION-CLINICA",
-     "edificio": "VETERINARIA",
-     "piso": "PISO 1",
-     "oficina": "PROGRAMA DE VETERINARIA - COORDINACIÓN CLINICA",
-     "tipo": "IMPRESORA EN CONVENIO",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 109,
-     "serialValido": false
-    },
-    {
      "serial": "1020010500317",
      "areaId": "VETERINARIA-PISO-1-PROGRAMA-DE-VETERINARIA-CONSULTORIO",
      "edificio": "VETERINARIA",
@@ -5132,22 +4995,6 @@
      "duracion": "una hora",
      "filaExcel": 120,
      "serialValido": true
-    },
-    {
-     "serial": "SIN-SERIAL-121",
-     "areaId": "CIENCIAS-NATURALES-PISO-1-LABORATORIO-DE-BIOPROCESOS",
-     "edificio": "CIENCIAS NATURALES",
-     "piso": "PISO 1",
-     "oficina": "LABORATORIO DE BIOPROCESOS",
-     "tipo": "PC",
-     "estado": "OK",
-     "novedad": "",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 121,
-     "serialValido": false
     },
     {
      "serial": "1020040100071",
@@ -5790,22 +5637,6 @@
      "serialValido": true
     },
     {
-     "serial": "SIN-SERIAL-162",
-     "areaId": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-401",
-     "edificio": "GUANE",
-     "piso": "PISO 4",
-     "oficina": "SALÓN AUDIOVISUALES GUANE 401",
-     "tipo": "PANTALLA INTERACTIVA",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 162,
-     "serialValido": false
-    },
-    {
      "serial": "1020010500363",
      "areaId": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-401",
      "edificio": "GUANE",
@@ -5820,22 +5651,6 @@
      "duracion": "una hora",
      "filaExcel": 163,
      "serialValido": true
-    },
-    {
-     "serial": "SIN-SERIAL-164",
-     "areaId": "GUANE-PISO-4-SALON-AUDIOVISUALES-GUANE-402",
-     "edificio": "GUANE",
-     "piso": "PISO 4",
-     "oficina": "SALÓN AUDIOVISUALES GUANE 402",
-     "tipo": "PC",
-     "estado": "OK",
-     "novedad": "",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 164,
-     "serialValido": false
     },
     {
      "serial": "1020020300020",
@@ -6350,22 +6165,6 @@
      "serialValido": true
     },
     {
-     "serial": "SIN-SERIAL-197",
-     "areaId": "MUISCA-PISO-1-LABORATORIO-DE-PAVIMENTOS-ARMADO",
-     "edificio": "MUISCA",
-     "piso": "PISO 1",
-     "oficina": "LABORATORIO DE PAVIMENTOS ARMADO",
-     "tipo": "PC",
-     "estado": "ALTA",
-     "novedad": "",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 197,
-     "serialValido": false
-    },
-    {
      "serial": "1020040200084",
      "areaId": "MUISCA-PISO-1-LABORATORIO-DE-PAVIMENTOS-ARMADO",
      "edificio": "MUISCA",
@@ -6476,22 +6275,6 @@
      "duracion": "una hora",
      "filaExcel": 204,
      "serialValido": true
-    },
-    {
-     "serial": "SIN-SERIAL-205",
-     "areaId": "MUISCA-PISO-2-SALA-DE-PROFESORES-INGENIERIA-AMBIENTAL",
-     "edificio": "MUISCA",
-     "piso": "PISO 2",
-     "oficina": "SALA DE PROFESORES INGENIERÍA AMBIENTAL",
-     "tipo": "PC",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 205,
-     "serialValido": false
     },
     {
      "serial": "1180010500138",
@@ -6766,22 +6549,6 @@
      "serialValido": true
     },
     {
-     "serial": "SIN-SERIAL-223",
-     "areaId": "MUISCA-PISO-3-FACULTAD-DE-INGENIERIAS",
-     "edificio": "MUISCA",
-     "piso": "PISO 3",
-     "oficina": "FACULTAD DE INGENIERIAS",
-     "tipo": "TODO EN UNO",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 223,
-     "serialValido": false
-    },
-    {
      "serial": "1020040200087",
      "areaId": "MUISCA-PISO-3-FACULTAD-DE-INGENIERIAS",
      "edificio": "MUISCA",
@@ -6812,22 +6579,6 @@
      "duracion": "una hora",
      "filaExcel": 225,
      "serialValido": true
-    },
-    {
-     "serial": "SIN-SERIAL-226",
-     "areaId": "MUISCA-PISO-3-FACULTAD-DE-INGENIERIAS",
-     "edificio": "MUISCA",
-     "piso": "PISO 3",
-     "oficina": "FACULTAD DE INGENIERIAS",
-     "tipo": "IMPRESORA EN CONVENIO",
-     "estado": "OK",
-     "novedad": "",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 226,
-     "serialValido": false
     },
     {
      "serial": "1180010500483",
@@ -7260,22 +7011,6 @@
      "duracion": "una hora",
      "filaExcel": 253,
      "serialValido": true
-    },
-    {
-     "serial": "SIN-SERIAL-254",
-     "areaId": "CASA-DE-COLORES-PISO-1-BIENESTAR-UNIVERSITARIO-DIRECCION",
-     "edificio": "CASA DE COLORES",
-     "piso": "PISO 1",
-     "oficina": "BIENESTAR UNIVERSITARIO - DIRECCIÓN",
-     "tipo": "IMPRESORA EN CONVENIO",
-     "estado": "ALTA",
-     "novedad": "sin novedades",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 254,
-     "serialValido": false
     },
     {
      "serial": "1180010900126",
@@ -7902,22 +7637,6 @@
      "serialValido": true
     },
     {
-     "serial": "SIN-SERIAL-294",
-     "areaId": "CARARE-ANEXO-PISO-1-SUBPROCESO-DE-TALENTO-HUMANO",
-     "edificio": "CARARE ANEXO",
-     "piso": "PISO 1",
-     "oficina": "SUBPROCESO DE TALENTO HUMANO",
-     "tipo": "IMPRESORA EN CONVENIO",
-     "estado": "OK",
-     "novedad": "",
-     "programada": "",
-     "ejecutada": "",
-     "tecnico": "DANIEL VESGA",
-     "duracion": "una hora",
-     "filaExcel": 294,
-     "serialValido": false
-    },
-    {
      "serial": "1190400200001",
      "areaId": "CARARE-ANEXO-PISO-1-SUBPROCESO-DE-TALENTO-HUMANO",
      "edificio": "CARARE ANEXO",
@@ -8231,10 +7950,10 @@
   }
  ],
  "resumen": {
-  "equiposUnicos": 304,
-  "areas": 77,
+  "equiposUnicos": 293,
+  "areas": 76,
   "jornadas": 1,
-  "registros": 307,
+  "registros": 296,
   "alertas": 14
  }
 }

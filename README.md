@@ -19,6 +19,14 @@ App para el celular que reemplaza el "pintar de colores" en el Excel.
 - **Observaciones (L):** "sin novedades", la novedad escrita, "no se encuentra…" o "Reasignado desde…".
 - **Cambio de dependencia:** si escaneas en un área distinta a la que aparece en la hoja, la app te avisa; al marcar en azul actualiza edificio/piso/oficina en el informe.
 - Se conservan las columnas A-L del archivo original y se colorea el número de inventario según el estado.
+- **Número de inventario en negro:** el fondo de la celda toma el color del estado, pero la fuente siempre se fuerza a negro (tanto al subir el cronograma como al guardar).
+- **Equipos nuevos en su área:** al dar de alta o reasignar, el equipo se inserta justo después del último registro de su misma dependencia (por ejemplo junto a *Antiguo Masira*), no al final.
+
+## Estadísticas y pendientes reales
+
+- Los seriales borrados, vacíos, "SS" o no numéricos **no cuentan** como equipo: se listan en **Alertas** y se excluyen de totales y porcentajes.
+- El porcentaje solo avanza con lo que se grabó con **Guardar y seguir** (o con un cambio real traído del Sheet). Los colores que trae el Excel original son el **cronograma**, no un registro: una celda sin registro cuenta como **pendiente** aunque el Excel venga coloreado o tenga fecha/semestre rellenos.
+- En el envío al Sheet, los pendientes viajan como `PENDIENTE` pero el script **no escribe nada en esas filas**: no les cambia fecha, horas, observaciones ni color. Solo se tocan las filas registradas.
 
 ## Estructura
 

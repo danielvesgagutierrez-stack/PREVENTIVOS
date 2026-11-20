@@ -141,7 +141,13 @@
   function areas() { return state.data?.areas || []; }
   function columnas() { return state.data?.columnas || COLUMNAS_POR_DEFECTO; }
   function progreso(jid, serial) { return state.progress[jid]?.[serial] || null; }
-  function estadoDe(item) { return progreso(state.jornadaId, item.serial)?.estado || item.estado || 'PENDIENTE'; }
+  // Solo cuenta lo registrado de verdad (Guardar y seguir / cambio traído del Sheet).
+  // Los colores que vienen en el Excel son el cronograma, no un registro real.
+  function registradoDe(item) {
+    const p = progreso(state.jornadaId, item.serial);
+    return p && p.registrado ? p.estado : null;
+  }
+  function estadoDe(item) { return registradoDe(item) || 'PENDIENTE'; }
   function novedadDe(item) { return progreso(state.jornadaId, item.serial)?.novedad || item.novedad || ''; }
   function horasDe(item) {
     const p = progreso(state.jornadaId, item.serial);
@@ -153,7 +159,8 @@
     const j = jornada(); const c = { OK: 0, NOVEDAD: 0, AUSENTE: 0, ALTA: 0, PENDIENTE: 0, HORAS: 0 };
     for (const it of j?.items || []) {
       const p = progreso(j.id, it.serial) || {};
-      const e = p.estado || it.estado || 'PENDIENTE';
+      // Un color del Excel NO es un registro: si no se grabó, cuenta como pendiente.
+      const e = p.registrado ? p.estado : 'PENDIENTE';
       c[e] = (c[e] || 0) + 1;
       if (e !== 'PENDIENTE') c.HORAS += Number(p.horas || horasDe(it) || 0);
     }
@@ -485,6 +492,24 @@
 
   /* ---------------- acciones de registro ---------------- */
 
+  /** Inserta un equipo justo después del último de su área (no al final). */
+  function insertarItemEnArea(item, areaId) {
+    const j = jornada(); if (!j) return;
+    const viejo = j.items.findIndex((i) => i.serial === item.serial);
+    if (viejo >= 0) j.items.splice(viejo, 1);
+    const norm = (v) => String(v || '').trim().toUpperCase()
+      .replace(/[ÁÀÄÅ]/g, 'A').replace(/[ÉÈË]/g, 'E').replace(/[ÍÌÏ]/g, 'I')
+      .replace(/[ÓÒÖ]/g, 'O').replace(/[ÚÙÜ]/g, 'U').replace(/Ñ/g, 'N');
+    const esMisma = (i) => i.areaId === areaId || (
+      norm(i.oficina) && norm(i.oficina) === norm(item.oficina)
+      && norm(i.edificio) === norm(item.edificio)
+      && norm(i.piso) === norm(item.piso)
+    );
+    let ultima = -1;
+    j.items.forEach((i, n) => { if (esMisma(i)) ultima = n; });
+    j.items.splice(ultima >= 0 ? ultima + 1 : j.items.length, 0, item);
+  }
+
   function setEstado(serial, datos) {
     if (!state.progress[state.jornadaId]) state.progress[state.jornadaId] = {};
     state.progress[state.jornadaId][serial] = {
@@ -529,6 +554,7 @@
         if (item.areaId !== destino) {
           extra.origen = areaNombre(item.areaId);
           item.areaId = destino; item.edificio = area.edificio; item.piso = area.piso; item.oficina = area.oficina;
+          insertarItemEnArea(item, destino); // se mueve a su área nueva, no al final
           const cat = state.data.catalogo.find((c) => c.serial === serial);
           if (cat) Object.assign(cat, { areaId: destino, edificio: area.edificio, piso: area.piso, oficina: area.oficina });
         }
@@ -568,11 +594,16 @@
     if (!state.data.catalogo.some((e) => e.serial === serial)) {
       state.data.catalogo.push({ serial, areaId, edificio: area.edificio, piso: area.piso, oficina: area.oficina, tipo, serialValido: /^\d+$/.test(serial) });
     }
-    if (!j.items.some((i) => i.serial === serial)) {
-      j.items.push({ serial, areaId, edificio: area.edificio, piso: area.piso, oficina: area.oficina, tipo,
+    let item = j.items.find((i) => i.serial === serial);
+    if (!item) {
+      item = { serial, areaId, edificio: area.edificio, piso: area.piso, oficina: area.oficina, tipo,
         estado: 'ALTA', novedad: nota, programada: '', tecnico: state.config.tecnico || j.tecnico || '',
-        duracion: ht, filaExcel: null, serialValido: /^\d+$/.test(serial) });
+        duracion: ht, filaExcel: null, serialValido: /^\d+$/.test(serial) };
+    } else {
+      item.areaId = areaId; item.edificio = area.edificio; item.piso = area.piso; item.oficina = area.oficina;
+      item.tipo = tipo;
     }
+    insertarItemEnArea(item, areaId); // va donde está su área, no al final
     state.areaActual = areaId;
     setEstado(serial, { estado: 'ALTA', novedad: nota, horas, horasTexto: ht });
     guardarDataset(); vibrar(120);
@@ -764,20 +795,30 @@
       const edificio = val(r, col.edificio), piso = val(r, col.piso), oficina = val(r, col.oficina);
       const serial = val(r, col.serial), tipo = val(r, col.tipo);
       if (!serial && !tipo && !oficina) continue;
+      const valido = /^\d{9,16}$/.test(serial);
+      if (!valido) {
+        // Sin serial no hay equipo: se reporta en Alertas pero NO cuenta en las estadísticas.
+        alertas.push({ jornada: nombreHoja, fila: r + 1, serial, motivo: 'Serial no numérico o vacío' });
+        continue;
+      }
+      if (vistos[serial] !== undefined) alertas.push({ jornada: nombreHoja, fila: r + 1, serial, motivo: 'Serial duplicado (fila ' + (vistos[serial] + 1) + ')' });
+      else vistos[serial] = r;
       const areaId = clave([edificio, piso, oficina].join('|')) || 'sin-area';
       areas[areaId] ||= { id: areaId, edificio, piso, oficina };
-      const valido = /^\d{9,16}$/.test(serial);
-      const s = valido ? serial : 'SIN-SERIAL-' + (r + 1);
-      if (!valido) alertas.push({ jornada: nombreHoja, fila: r + 1, serial, motivo: 'Serial no numérico o vacío' });
-      else if (vistos[serial] !== undefined) alertas.push({ jornada: nombreHoja, fila: r + 1, serial, motivo: 'Serial duplicado (fila ' + (vistos[serial] + 1) + ')' });
-      else vistos[serial] = r;
-      const obs = val(r, col.observaciones), low = obs.toLowerCase();
-      const color = (ws[XLSX.utils.encode_cell({ r, c: col.serial })]?.s?.fill?.fgColor?.rgb || '').toUpperCase();
+      const s = serial;
+      const obs = val(r, col.observaciones);
+      // SheetJS guarda el relleno en s.fgColor (algunas versiones, en s.fill.fgColor).
+      // Sin color reconocido el equipo sigue PENDIENTE, aunque tenga fecha o semestre.
+      const estilo = ws[XLSX.utils.encode_cell({ r, c: col.serial })]?.s || {};
+      let crudo = String(estilo.fgColor?.rgb || estilo.fill?.fgColor?.rgb || '')
+        .toUpperCase().replace(/^0X/, '');
+      if (crudo.length === 8) crudo = crudo.slice(-6);
+      const color = crudo;
       let estado = 'PENDIENTE';
-      if (color === 'FF00B0F0') estado = 'ALTA';
-      else if (/no se encuentra/i.test(obs) || color.startsWith('FFFF0000') || color.startsWith('FFFF3300')) estado = 'AUSENTE';
-      else if (obs && !/^sin novedad/i.test(obs)) estado = 'NOVEDAD';
-      else if (val(r, col.ejecutada) || val(r, col.semestre) || val(r, col.duracion)) estado = 'OK';
+      if (color === '00B0F0') estado = 'ALTA';
+      else if (color === 'FF0000' || color === 'FF3300' || /no se encuentra/i.test(obs)) estado = 'AUSENTE';
+      else if (color === 'FFC000' || color === 'ED7D31' || (obs && !/^sin novedad/i.test(obs))) estado = 'NOVEDAD';
+      else if (color === '92D050' || color === '70AD47') estado = 'OK';
       if (!cat[s]) cat[s] = { serial: s, areaId, edificio, piso, oficina, tipo, serialValido: valido };
       items.push({ serial: s, areaId, edificio, piso, oficina, tipo, estado,
         novedad: estado === 'NOVEDAD' ? obs : '', programada: val(r, col.programada).slice(0, 10),
@@ -837,7 +878,7 @@
       let filaNueva = ws.rowCount + 1; // equipos de alta no tenían fila en el Excel original
       for (const it of items()) {
         const pr = progreso(j.id, it.serial) || {};
-        const est = pr.estado || it.estado || 'PENDIENTE';
+        const est = pr.registrado ? pr.estado : 'PENDIENTE';
         if (est === 'PENDIENTE') continue;
         const fila = ws.getRow(it.filaExcel || filaNueva++);
         fila.getCell(col.edificio + 1).value = it.edificio;
@@ -1074,7 +1115,8 @@
         horasTexto: norm(f.horasTexto) || horasTexto(pr?.horas || 1),
         fecha: norm(f.fecha) || (hoy() + ' ' + hora().slice(11)),
         tecnico: f.tecnico || state.config.tecnico || j.tecnico || '',
-        registrado: pr?.registrado || false,
+        // Un cambio real del Sheet (color + datos) también cuenta como registro.
+        registrado: true,
       };
       item.estado = f.estado;
       item.novedad = state.progress[j.id][f.serial].novedad;

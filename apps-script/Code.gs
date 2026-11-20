@@ -101,6 +101,9 @@ function cargarCronograma(ss, data) {
   let nCol = 1;
   valores.forEach(function (f) { if (f.length > nCol) nCol = f.length; });
 
+  const columnas = data.columnas || {};
+  const colSerial = Number(columnas.serial) + 1;                       // 1-based
+  const primeraFilaDatos = Number(columnas.headerRow || 0) + 1;        // índice 0-based
   const vals = [], fondos = [], letras = [], negritas = [], tamanos = [], alineados = [];
   for (let i = 0; i < nFil; i++) {
     const fila = valores[i] || [];
@@ -115,11 +118,12 @@ function cargarCronograma(ss, data) {
       }
       rv.push(v);
 
-      const bg = String(est.bg || '').replace(/^0x/, '').replace(/^FF/, '');
-      ff.push(bg.length === 6 ? '#' + bg : '#ffffff');
-      let fg = String(est.fg || '').replace(/^0x/, '').replace(/^FF/, '');
-      if (fg.length !== 6) fg = esOscuro(bg) ? 'ffffff' : '000000';
-      fl.push('#' + fg);
+      const bg = hex6(est.bg);
+      ff.push(bg ? '#' + bg : '#ffffff');
+      let fg = hex6(est.fg);
+      if (!fg) fg = esOscuro(bg) ? 'ffffff' : '000000';
+      // El número de inventario siempre en negro; solo cambia el fondo de la celda.
+      fl.push((j + 1 === colSerial && i >= primeraFilaDatos) ? '#000000' : '#' + fg);
       fn.push(est.b ? 'bold' : 'normal');
       fs.push(Number(est.sz || 10));
       let al = String(est.al || 'left');
@@ -154,6 +158,20 @@ function cargarCronograma(ss, data) {
     combinaciones: (data.merges || []).length, estadosAplicados: aplicadas };
 }
 
+/** Clave de área sin acentos para comparar Excel y Sheet aunque difieran en tildes. */
+function normZona(valor) {
+  return String(valor || '').trim().toUpperCase()
+    .replace(/[ÁÀÄÅ]/g, 'A').replace(/[ÉÈË]/g, 'E').replace(/[ÍÌÏ]/g, 'I')
+    .replace(/[ÓÒÖ]/g, 'O').replace(/[ÚÙÜ]/g, 'U').replace(/Ñ/g, 'N');
+}
+
+/** Normaliza 0xFF92D050 / FF92D050 / 92D050 a 92D050 (o ''). */
+function hex6(valor) {
+  let h = String(valor || '').replace(/^0x/i, '').toUpperCase();
+  if (h.length === 8 && h.slice(0, 2) === 'FF') h = h.slice(2);
+  return h.length === 6 ? h : '';
+}
+
 function esOscuro(hex) {
   const h = String(hex || '');
   if (h.length !== 6) return false;
@@ -184,25 +202,28 @@ function aplicarEstados(hoja, filas, columnas) {
   const col = detectarColumnas(hoja, columnas);
   const filaEnc = col.filaEncabezado;
   const ultima = Math.max(hoja.getLastRow(), filaEnc);
-  const seriales = hoja.getRange(filaEnc + 1, col.serial, Math.max(ultima - filaEnc, 0), 1).getValues();
-  const porSerial = {};
-  seriales.forEach(function (f, i) {
-    const k = String(f[0] || '').trim();
-    if (k) porSerial[k] = filaEnc + 1 + i;
-  });
-  let libre = ultima + 1;
+  const nDatos = Math.max(ultima - filaEnc, 0);
   const ancho = Math.max(hoja.getLastColumn(), 12);
-  const destinos = registrados.map(function (f) {
-    const clave = String(f.serial || '').trim();
-    return { f: f, fila: porSerial[clave] || libre++ };
-  });
 
-  // Se descombinan únicamente las filas que se van a escribir.
-  destinos.forEach(function (d) {
-    try { hoja.getRange(d.fila, 1, 1, ancho).breakApart(); } catch (err) {}
-  });
-  destinos.forEach(function (d) {
-    const f = d.f, fila = d.fila;
+  // Mapa de serial -> fila y de área -> última fila, para ubicar altas y reasignaciones.
+  const seriales = nDatos ? hoja.getRange(filaEnc + 1, col.serial, nDatos, 1).getValues() : [];
+  const anchoArea = Math.max(col.edificio, col.piso, col.oficina);
+  const areaVals = nDatos ? hoja.getRange(filaEnc + 1, 1, nDatos, anchoArea).getValues() : [];
+  const porSerial = {}, ultimaFilaArea = {};
+  for (let i = 0; i < seriales.length; i++) {
+    const fila = filaEnc + 1 + i;
+    const k = String(seriales[i][0] || '').trim();
+    if (k) porSerial[k] = fila;
+    const zona = [areaVals[i][col.edificio - 1], areaVals[i][col.piso - 1], areaVals[i][col.oficina - 1]]
+      .map(normZona).join('|');
+    if (zona.replace(/\|/g, '')) ultimaFilaArea[zona] = fila;
+  }
+  const zonaDe = function (f) {
+    return [f.edificio, f.piso, f.oficina].map(normZona).join('|');
+  };
+
+  function escribir(f, fila) {
+    try { hoja.getRange(fila, 1, 1, ancho).breakApart(); } catch (err) {}
     const campos = [
       [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
       [col.serial, f.serial], [col.tipo, f.tipo],
@@ -219,8 +240,28 @@ function aplicarEstados(hoja, filas, columnas) {
         .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
         .setFontColor('#000000');
     } catch (err) {}
+  }
+
+  // 1) Existentes: se escriben en su fila (no se mueven).
+  const existentes = [], nuevos = [];
+  registrados.forEach(function (f) {
+    const k = String(f.serial || '').trim();
+    (porSerial[k] ? existentes : nuevos).push(porSerial[k] ? { f: f, fila: porSerial[k] } : f);
   });
-  return destinos.length;
+  existentes.forEach(function (d) { escribir(d.f, d.fila); });
+
+  // 2) Nuevos: se insertan JUSTO DESPUÉS de la última fila de su área.
+  //    De atrás hacia adelante para que los insert no corran los destinos ya calculados.
+  nuevos.map(function (f) {
+    const zona = zonaDe(f);
+    return { f: f, zona: zona, base: ultimaFilaArea[zona] || ultima };
+  }).sort(function (a, b) { return b.base - a.base; }).forEach(function (d) {
+    hoja.insertRowsAfter(d.base, 1);
+    ultimaFilaArea[d.zona] = d.base + 1;
+    escribir(d.f, d.base + 1);
+  });
+
+  return registrados.length;
 }
 
 function detectarColumnas(hoja, datos) {

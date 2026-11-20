@@ -31,8 +31,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 AZUL = {"FF00B0F0"}
 ROJO = {"FFFF0000", "FFFF3300"}
-VERDE = {"FF92D050"}
-NARANJA = {"FFFFC000"}
+VERDE = {"FF92D050", "FF70AD47", "THEME:9"}
+NARANJA = {"FFFFC000", "FFED7D31", "THEME:5", "THEME:7"}
 
 MESES = {
     1: "ene", 2: "feb", 3: "mar", 4: "abr", 5: "may", 6: "jun",
@@ -82,9 +82,12 @@ def estado_de(celda, observacion):
         return "NOVEDAD", observacion
     if "fuera de la universidad" in obs or "trabajando desde casa" in obs or "core 2 duo" in obs or "torre sin usar" in obs:
         return "NOVEDAD", observacion
-    if color in VERDE or obs in ("sin novedades", "sin novedad", ""):
-        return "OK", "" if obs == "sin novedades" else norm(observacion)
-    return ("OK", "") if not obs else ("NOVEDAD", norm(observacion))
+    if color in VERDE:
+        return "OK", "" if obs in ("sin novedades", "sin novedad") else norm(observacion)
+    # Sin color reconocido NO es un registro: queda pendiente aunque tenga fecha o semestre.
+    if obs and obs not in ("sin novedades", "sin novedad"):
+        return "NOVEDAD", norm(observacion)
+    return "PENDIENTE", ""
 
 
 def elegir_hoja(wb, nombre_explicito=None):
@@ -169,6 +172,15 @@ def main():
             if not serial and not tipo and not oficina:
                 continue
 
+            es_valido = bool(re.fullmatch(r"\d{9,16}", serial))
+            if not es_valido:
+                # Sin serial no hay equipo: se reporta pero NO cuenta en estadísticas.
+                alertas.append({
+                    "jornada": titulo, "fila": fila, "serial": serial,
+                    "motivo": "Serial no numerico o vacio (posible 'sin serial')",
+                })
+                continue
+
             area_id = clave("|".join([edificio, piso, oficina])) or "sin-area"
             if area_id not in areas:
                 areas[area_id] = {
@@ -177,14 +189,6 @@ def main():
                     "piso": piso,
                     "oficina": oficina,
                 }
-
-            es_valido = bool(re.fullmatch(r"\d{9,16}", serial))
-            if not es_valido:
-                alertas.append({
-                    "jornada": titulo, "fila": fila, "serial": serial,
-                    "motivo": "Serial no numerico o vacio (posible 'sin serial')",
-                })
-                serial = "SIN-SERIAL-" + str(fila)
 
             observacion = valor(12)
             if not any(ws.cell(fila, c).value for c in (7, 9, 10, 11, 12)) and color_de(ws.cell(fila, 4)) == "":
