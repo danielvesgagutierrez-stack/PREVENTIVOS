@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v26';
+  const APP_VERSION = '2026-11-20-v27';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -140,7 +140,12 @@
   function guardarProgreso() { escribir(K.progress, state.progress); }
   function guardarDataset() { escribir(K.data, state.data); }
   function jornada() { return state.data?.jornadas?.[0]; }
-  function nombreHoja() { return state.archivoMeta?.hoja || state.data?.hoja || jornada()?.nombre || 'Informe'; }
+  // El nombre de la hoja SIEMPRE debe ser explícito. Si se cae al nombre de la
+  // jornada ("Preventivo B 2026") el backend crea una hoja nueva y la app
+  // parece no ver ningún cambio.
+  function nombreHoja() {
+    return norm(state.config.hoja) || state.archivoMeta?.hoja || state.data?.hoja || jornada()?.nombre || 'Informe';
+  }
   function items() { return jornada()?.items || []; }
   function areas() { return state.data?.areas || []; }
   function columnas() { return state.data?.columnas || COLUMNAS_POR_DEFECTO; }
@@ -205,6 +210,10 @@
       } catch (_) { state.data = null; }
     }
     if (state.data?.jornadas?.length) state.jornadaId = state.data.jornadas[0].id;
+    if (!norm(state.config.hoja)) {
+      const sugerida = state.archivoMeta?.hoja || state.data?.hoja || '';
+      if (sugerida) { state.config.hoja = sugerida; escribir(K.config, state.config); }
+    }
   }
 
   /* ---------------- render ---------------- */
@@ -275,7 +284,8 @@
       <div class="card">
         <h2>Hoja del mantenimiento</h2>
         <div class="row spread"><div class="grow"><b>${esc(j.nombre)}</b>
-          <div class="small muted">${esc(state.archivoMeta?.nombre || state.data.fuente || '')} · ${esc(j.tecnico || 'Sin técnico')}</div></div>
+          <div class="small muted">${esc(state.archivoMeta?.nombre || state.data.fuente || '')} · ${esc(j.tecnico || 'Sin técnico')}</div>
+          <div class="tiny muted">${esc(APP_VERSION)} · ${esc(window.APP_BUILD || 'local')}</div></div>
           <button class="btn sm" data-act="subir">Cambiar</button></div>
         <div class="mt">${statsHtml(s)}</div>
         <div class="small muted center mt">${s.HECHOS}/${s.TOTAL} registrados · ${Math.round((s.HECHOS / (s.TOTAL || 1)) * 100)}% · ${totalHoras} h ejecutadas</div>
@@ -473,6 +483,9 @@
         <button class="btn block mt" data-act="limpiar-cache">↻ Forzar actualización (borrar caché y recargar)</button>
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
+        <label class="campo" for="cfgHoja">Nombre de la hoja en Google Sheets</label>
+        <input class="campo" id="cfgHoja" placeholder="2026-B" value="${esc(nombreHoja())}">
+        <p class="tiny muted">Debe ser exactamente el nombre de la hoja que se creó al subir el cronograma (por ejemplo <b>2026-B</b>). Si dice <b>Preventivo B 2026</b>, la app está escribiendo en una hoja nueva y vacía.</p>
         <label class="campo" for="cfgToken">Clave secreta</label>
         <input class="campo" id="cfgToken" value="${esc(state.config.token || '')}">
         <label class="campo" for="cfgTecnico">Técnico</label>
@@ -757,6 +770,8 @@
       if (!blob) throw new Error('Falta el archivo');
       state.data = parseXlsx(await blob.arrayBuffer(), nombre);
       state.archivoMeta = { nombre: state.archivoMeta?.nombre || 'cronograma.xlsx', hoja: nombre };
+      state.config.hoja = nombre;          // la app siempre apuntará a esta hoja
+      escribir(K.config, state.config);
       guardarDataset(); escribir(K.archivo, state.archivoMeta);
       state.jornadaId = state.data.jornadas[0].id;
       escribir(K.jornada, state.jornadaId);
@@ -1114,7 +1129,7 @@
 
   /** Aplica al teléfono lo que cambiaron en el Sheet; gana lo más reciente. */
   function aplicarCambiosSheet(data) {
-    if (!data || !data.ok) return;
+    if (!data || !data.ok) { if (data?.error) toast('Sheets: ' + data.error); return; }
     const j = jornada(); if (!j) return;
     if (!state.progress[j.id]) state.progress[j.id] = {};
     const todas = data.filas || [];
@@ -1273,7 +1288,8 @@
       case 'etiquetas': go('#/etiquetas'); break;
       case 'generar-etiquetas': generarEtiquetas(); break;
       case 'guardar-config':
-        state.config = { url: $('#cfgUrl').value, token: $('#cfgToken').value, tecnico: $('#cfgTecnico').value };
+        state.config = { url: $('#cfgUrl').value, token: $('#cfgToken').value,
+          tecnico: $('#cfgTecnico').value, hoja: norm($('#cfgHoja')?.value || nombreHoja()) };
         escribir(K.config, state.config); toast('Configuración guardada');
         await sincronizarAuto(); render(); break;
       case 'borrar-progreso':
@@ -1312,9 +1328,22 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizarAuto(); });
   setInterval(() => { if (!document.hidden) sincronizarAuto(); }, 2 * 60 * 1000);
 
+  // En la APK los archivos ya vienen dentro del paquete: el service worker
+  // solo puede servir copias viejas desde la caché del WebView de Android.
+  const esApk = () => !!window.APP_BUILD && window.APP_BUILD !== 'local';
+  async function limpiarCacheApk() {
+    if (!esApk()) return;
+    try { const rs = await navigator.serviceWorker?.getRegistrations?.() || [];
+      await Promise.all(rs.map((r) => r.unregister())); } catch (_) {}
+    try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch (_) {}
+  }
+
   (async () => {
+    await limpiarCacheApk();
     await cargar(); render();
     setTimeout(() => sincronizarAuto(), 1500); // sincroniza al abrir la APK
-    if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    if ('serviceWorker' in navigator && !esApk()) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
   })();
 })();

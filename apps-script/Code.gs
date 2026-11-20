@@ -17,7 +17,7 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
-const VERSION = '2026-11-20d'; // se muestra en Datos para confirmar que está desplegado
+const VERSION = '2026-11-20e'; // se muestra en Datos para confirmar que está desplegado
 let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
@@ -199,9 +199,12 @@ function esOscuro(hex) {
 
 /** Escribe los resultados por equipo en la hoja indicada, sin hojas auxiliares. */
 function escribirEstados(ss, data) {
-  const nombre = String(data.hoja || '').trim() || 'Cronograma';
-  let hoja = ss.getSheetByName(nombre);
-  if (!hoja) { hoja = ss.insertSheet(nombre); hoja.appendRow(HEADERS); }
+  const nombre = String(data.hoja || '').trim();
+  const hoja = ss.getSheetByName(nombre);
+  // NUNCA crear hojas aquí: si el nombre no coincide, la app escribiría en una
+  // hoja nueva y parecería que no pasa nada. Mejor avisar con el nombre exacto.
+  if (!hoja) return { ok: false, error: 'No existe la hoja "' + nombre + '". Sube el cronograma o corrige el nombre en Datos.',
+    hojas: ss.getSheets().map(function (h) { return h.getName(); }) };
   const aplicadas = aplicarEstados(hoja, data.filas || [], data.columnas);
   return { ok: true, hoja: hoja.getName(), modo: data.modo || 'fila',
     recibidas: (data.filas || []).length, escritas: aplicadas };

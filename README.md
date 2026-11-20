@@ -152,7 +152,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 
 ### Cómo saber si el APK instalado es realmente el nuevo
 
-Entra a **Datos → Diagnóstico**. Debe aparecer algo como:
+El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
 App instalada: 2026-11-20-v26 · a1b2c3d · 2026-11-20T19:35Z
@@ -160,7 +160,16 @@ App instalada: 2026-11-20-v26 · a1b2c3d · 2026-11-20T19:35Z
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.
 
-> **Android conserva `localStorage` al actualizar una APK.** Por eso los cronogramas y registros de pruebas pueden seguir apareciendo aunque el código sea nuevo. En esta versión las claves de guardado cambiaron a `_v4`: la app nueva arranca con el cronograma que viene dentro del paquete y los datos antiguos se quedan guardados (no se borran) con los nombres `_v3`. Para volver a empezar en el celular, entra a **Datos → Olvidar cronograma** o reinstala borrando los datos de la app desde Ajustes de Android.
+> **Android conserva `localStorage` y la caché del WebView al actualizar una APK.** Por eso los cronogramas y registros de pruebas pueden seguir apareciendo aunque el código sea nuevo. En esta versión:
+> - las claves de guardado cambiaron a `_v4` (los datos viejos quedan en `_v3`, no se borran);
+> - la APK **no registra service worker** (los archivos ya vienen dentro del paquete) y borra cachés antiguas al abrir;
+> - cada compilación usa `https://localhost` y recursos con `?v=<commit>`, así Android no puede reutilizar la caché de una APK anterior.
+>
+> Si aun así ves información vieja, **desinstala la APK y vuelve a instalarla** (no solo "actualizar"), y comprueba el sello en Inicio. Si el sello dice `local` o un commit anterior, estás abriendo otra APK o un artifact viejo de GitHub Actions.
+
+### Ojo con el nombre de la hoja
+
+Si aparece una hoja nueva llamada **«Preventivo B 2026»**, la app está escribiendo en el lugar equivocado. Ese texto es el *nombre de la jornada*, no el nombre de la hoja del Excel (`2026-B`). Ahora hay un campo explícito en **Datos → Nombre de la hoja en Google Sheets**: debe decir exactamente `2026-B` (o el nombre de la hoja que elegiste al subir). El backend ya **no crea hojas nuevas** al guardar: si el nombre no existe, avisa con el mensaje «No existe la hoja…» y lista las hojas disponibles. Borra la hoja espuria «Preventivo B 2026» en Google Sheets después de corregir el nombre.
 
 > Para subirlo a Google Play hace falta un APK/AAB **firmado** con tu propia llave y una cuenta de desarrollador; este flujo genera un `debug` listo para uso personal.
 
