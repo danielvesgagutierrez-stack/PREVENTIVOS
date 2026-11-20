@@ -140,15 +140,27 @@ GitHub Actions **no tiene un botón mágico** para compilar APK: solo ejecuta fl
 
 ### Opción A: GitHub Actions (APK con Capacitor)
 
-1. Sube a GitHub **un solo archivo**: `.github/workflows/build-apk.yml`.
-   - Si tu editor no muestra carpetas ocultas, crea el archivo desde la web: **Add file → Create new file** y en el nombre escribe literalmente `.github/workflows/build-apk.yml`.
+1. Sube a GitHub **TODOS los archivos de la app**, no solo el workflow: `index.html`, `app.js`, `styles.css`, `manifest.webmanifest`, `sw.js`, `version.js` y las carpetas `vendor/`, `data/`, `icons/`, además de `.github/workflows/build-apk.yml`. Si falta alguno, el workflow falla a propósito con un mensaje claro.
+   - Si tu editor no muestra carpetas ocultas, crea el workflow desde la web: **Add file → Create new file** y en el nombre escribe literalmente `.github/workflows/build-apk.yml`.
    - Debe quedar en la **raíz del repositorio** y en la rama por defecto (`main`/`master`). Si subiste toda la app dentro de una carpeta `preventivos-app/`, el workflow también la detecta.
 2. En GitHub entra a la pestaña **Actions**.
 3. A la izquierda selecciona **Compilar APK** → botón **Run workflow** → **Run workflow**.
 4. Espera 3-6 minutos. Al terminar, en la ejecución aparece **Artifacts → preventivos-apk**.
 5. Descarga el `.zip`, extráelo y copia `app-debug.apk` al celular. Ábrelo e instala (hay que permitir "instalar aplicaciones desconocidas").
 
-El APK trae la app completa dentro (no depende de internet), usa la cámara y guarda los datos en el teléfono. Si quieres actualizarlo, repite el paso 3 con los cambios ya subidos.
+El APK trae la app completa dentro (no depende de internet), usa la cámara y guarda los datos en el teléfono. Si quieres actualizarlo, repite el paso 3 **después de haber subido los archivos modificados**.
+
+### Cómo saber si el APK instalado es realmente el nuevo
+
+Entra a **Datos → Diagnóstico**. Debe aparecer algo como:
+
+```
+App instalada: 2026-11-20-v26 · a1b2c3d · 2026-11-20T19:35Z
+```
+
+El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.
+
+> **Android conserva `localStorage` al actualizar una APK.** Por eso los cronogramas y registros de pruebas pueden seguir apareciendo aunque el código sea nuevo. En esta versión las claves de guardado cambiaron a `_v4`: la app nueva arranca con el cronograma que viene dentro del paquete y los datos antiguos se quedan guardados (no se borran) con los nombres `_v3`. Para volver a empezar en el celular, entra a **Datos → Olvidar cronograma** o reinstala borrando los datos de la app desde Ajustes de Android.
 
 > Para subirlo a Google Play hace falta un APK/AAB **firmado** con tu propia llave y una cuenta de desarrollador; este flujo genera un `debug` listo para uso personal.
 

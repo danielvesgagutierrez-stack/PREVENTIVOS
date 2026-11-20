@@ -6,15 +6,19 @@
 (() => {
   'use strict';
 
+  // Las claves cambian con cada versión: Android conserva localStorage al
+  // actualizar la APK, así que los datos viejos quedan guardados pero la app
+  // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
+  const APP_VERSION = '2026-11-20-v26';
   const K = {
-    data: 'prev_dataset_v3',
-    progress: 'prev_progress_v3',
-    config: 'prev_config_v3',
-    jornada: 'prev_jornada_v3',
-    archivo: 'prev_archivo_v3',
-    pendiente: 'prev_pendiente_v1', // seriales que no se pudieron enviar (sin internet)
-    sync: 'prev_sync_v1',           // resultado de la última sincronización
-    cargar: 'prev_cargar_v1',       // cronograma pendiente de subir al Sheet
+    data: 'prev_dataset_v4',
+    progress: 'prev_progress_v4',
+    config: 'prev_config_v4',
+    jornada: 'prev_jornada_v4',
+    archivo: 'prev_archivo_v4',
+    pendiente: 'prev_pendiente_v4', // seriales que no se pudieron enviar (sin internet)
+    sync: 'prev_sync_v4',           // resultado de la última sincronización
+    cargar: 'prev_cargar_v4',       // cronograma pendiente de subir al Sheet
   };
 
   const ESTADOS = {
@@ -181,7 +185,14 @@
   /* ---------------- carga ---------------- */
 
   async function cargar() {
-    state.config = leer(K.config, { url: '', token: 'udes2026', tecnico: '' });
+    // La configuración sí se hereda de la versión anterior para no volver a
+    // pegar la URL del Web App; los datos y registros viejos NO se heredan.
+    let cfg = leer(K.config, null);
+    if (!cfg) {
+      const anterior = leer('prev_config_v3', null);
+      if (anterior && (anterior.url || anterior.tecnico)) { cfg = anterior; escribir(K.config, cfg); }
+    }
+    state.config = cfg || { url: '', token: 'udes2026', tecnico: '' };
     state.progress = leer(K.progress, {});
     state.archivoMeta = leer(K.archivo, null);
     const guardado = leer(K.data, null);
@@ -449,7 +460,8 @@
         <p class="small muted">↻ Auto-sync: al abrir, al escanear, al volver la señal y cada 2 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
         ${sy?.coloreadas !== undefined ? `<p class="small muted">Sheet leído: ${sy.coloreadas} con color · ${sy.conDatos} con datos (fecha/horas/observaciones)</p>` : ''}
         <div class="small mt" style="border:1px solid #bbb;border-radius:6px;padding:6px">
-          <b>Diagnóstico del Sheets</b><br>
+          <b>Diagnóstico</b><br>
+          App instalada: <span class="mono">${esc(APP_VERSION)} · ${esc(window.APP_BUILD || 'local')}</span><br>
           Versión del script: <span class="mono">${esc(sy?.version || 'sin respuesta')}</span><br>
           Último envío: ${esc(sy?.ultimo?.hora || '—')} · modo ${esc(sy?.ultimo?.modo || '—')} ·
           hoja ${esc(sy?.ultimo?.hoja || '—')} · id ${esc(sy?.ultimo?.id || '—')}<br>
@@ -458,6 +470,7 @@
           ${sy?.ultimo?.diag?.fallos?.length ? `<br><span style="color:#b91c1c">Errores: ${esc(sy.ultimo.diag.fallos.slice(0, 4).join(' | '))}</span>` : ''}
           ${sy?.ultimo?.error ? `<br><span style="color:#b91c1c">Error: ${esc(sy.ultimo.error)}</span>` : ''}
         </div>
+        <button class="btn block mt" data-act="limpiar-cache">↻ Forzar actualización (borrar caché y recargar)</button>
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
         <label class="campo" for="cfgToken">Clave secreta</label>
@@ -1249,6 +1262,14 @@
       case 'informe': await generarInforme(); break;
       case 'exportar': exportar(); break;
       case 'sincronizar': await sincronizar(); break;
+      case 'limpiar-cache': {
+        try { const rs = await navigator.serviceWorker?.getRegistrations?.() || [];
+          await Promise.all(rs.map((r) => r.unregister())); } catch (_) {}
+        try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch (_) {}
+        toast('Caché borrado. Reabriendo…');
+        setTimeout(() => location.reload(), 800);
+        break;
+      }
       case 'etiquetas': go('#/etiquetas'); break;
       case 'generar-etiquetas': generarEtiquetas(); break;
       case 'guardar-config':
