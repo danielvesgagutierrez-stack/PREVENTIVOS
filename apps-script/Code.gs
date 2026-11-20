@@ -17,6 +17,8 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
+const VERSION = '2026-11-20d'; // se muestra en Datos para confirmar que está desplegado
+let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
   NOVEDAD: '#FFC000',
@@ -58,6 +60,14 @@ function jsonp(callback, obj) {
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
+/** Guarda el resultado del último envío para que la app pueda leerlo por JSONP. */
+function guardarDiag(obj) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('DIAG', JSON.stringify(
+      Object.assign({ hora: new Date().toISOString(), version: VERSION }, obj)));
+  } catch (err) {}
+}
+
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
@@ -68,12 +78,19 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(30000);
     let res;
-    if (data.modo === 'cargar') res = cargarCronograma(ss, data);
-    else res = escribirEstados(ss, data);
-    lock.releaseLock();
+    try {
+      if (data.modo === 'cargar') res = cargarCronograma(ss, data);
+      else res = escribirEstados(ss, data);
+    } finally {
+      lock.releaseLock();
+    }
+    guardarDiag(Object.assign({ ok: res.ok !== false, modo: data.modo,
+      hoja: data.hoja || '', id: String(id).slice(0, 6) + '…' + String(id).slice(-4),
+      recibidas: (data.filas || []).length }, res, { diag: diagEscritura }));
     return respuesta(res);
   } catch (err) {
     try { LockService.getScriptLock().releaseLock(); } catch (_) {}
+    guardarDiag({ ok: false, error: String(err), diag: diagEscritura });
     return respuesta({ ok: false, error: String(err) });
   }
 }
@@ -197,6 +214,7 @@ function aplicarEstados(hoja, filas, columnas) {
   });
   // Nada de registros = nada de cambios. Así el formato original se mantiene
   // intacto mientras se entra/sale de la app o corre el auto-sync.
+  diagEscritura = { filas: registrados.length, existentes: 0, nuevos: 0, fallos: [] };
   if (!registrados.length) return 0;
 
   const col = detectarColumnas(hoja, columnas);
@@ -244,42 +262,73 @@ function aplicarEstados(hoja, filas, columnas) {
   const COLS_ESCRITAS = [col.edificio, col.piso, col.oficina, col.serial, col.tipo,
     col.ejecutada, col.tecnico, col.semestre, col.duracion, col.seguimiento, col.observaciones];
 
-  function escribir(f, fila) {
-    function aplicar() {
-      const campos = [
-        [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
-        [col.serial, f.serial], [col.tipo, f.tipo],
-        // FECHA PROGRAMADA no se toca.
-        [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
-        [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
-        [col.observaciones, f.observaciones],
-      ];
-      campos.forEach(function (par) {
-        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
+  /**
+   * breakApart() solo funciona si el rango cubre la combinación COMPLETA.
+   * Por eso se piden las combinaciones reales con getMergedRanges() y se parte
+   * únicamente la que toca la fila que vamos a escribir; después se vuelve a
+   * unir el trozo de arriba y el de abajo para conservar el formato.
+   */
+  function romperCombinadas(fila) {
+    try {
+      const n = Math.max(hoja.getLastRow() - filaEnc, 1);
+      const lista = hoja.getRange(filaEnc + 1, 1, n, ancho).getMergedRanges();
+      lista.forEach(function (mr) {
+        const ini = mr.getRow(), fin = ini + mr.getNumRows() - 1;
+        if (fila < ini || fila > fin) return;
+        const c0 = mr.getColumn(), nc = mr.getNumColumns();
+        let valor = '';
+        try { valor = mr.getValue(); } catch (err) {}
+        try { mr.breakApart(); } catch (err) {
+          diagEscritura.fallos.push('unir fila ' + fila + ': ' + String(err));
+        }
+        try { if (fila > ini) hoja.getRange(ini, c0, fila - ini, nc).merge(); } catch (err) {}
+        try {
+          if (fila < fin) {
+            const abajo = hoja.getRange(fila + 1, c0, fin - fila, nc);
+            abajo.setValue(valor); abajo.merge();
+          }
+        } catch (err) {}
       });
-      try {
-        hoja.getRange(fila, col.serial)
-          .setBackground(FONDOS[f.estado] || FONDOS.PENDIENTE)
-          .setFontColor('#000000');
-      } catch (err) {}
+    } catch (err) {
+      // Compatibilidad: si getMergedRanges no está, se parten columnas enteras.
+      COLS_ESCRITAS.forEach(function (c) {
+        try { hoja.getRange(filaEnc + 1, c, Math.max(hoja.getLastRow() - filaEnc, 1), 1).breakApart(); } catch (e) {}
+      });
     }
+  }
 
-    // 1) Romper solo la fila respeta el formato del resto del cronograma.
-    try { hoja.getRange(fila, 1, 1, ancho).breakApart(); } catch (err) {}
-    aplicar();
+  function escribir(f, fila) {
+    romperCombinadas(fila);
+    const campos = [
+      [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
+      [col.serial, f.serial], [col.tipo, f.tipo],
+      // FECHA PROGRAMADA no se toca.
+      [col.ejecutada, f.fecha], [col.tecnico, f.tecnico], [col.semestre, f.semestre],
+      [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
+      [col.observaciones, f.observaciones],
+    ];
+    campos.forEach(function (par) {
+      try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); }
+      catch (err) { diagEscritura.fallos.push('fila ' + fila + ' col ' + par[0] + ': ' + String(err)); }
+    });
+    const fondo = FONDOS[f.estado] || FONDOS.PENDIENTE;
+    try {
+      hoja.getRange(fila, col.serial).setBackground(fondo).setFontColor('#000000');
+    } catch (err) { diagEscritura.fallos.push('fila ' + fila + ' color: ' + String(err)); }
 
-    // 2) Verificar de verdad: si el serial no quedó escrito, la celda sigue
-    //    atrapada en una combinación vertical. Rompemos TODAS las columnas
-    //    que se escriben y repetimos. Sin esto la fila queda en blanco y el
-    //    siguiente guardado inserta otra fila (doble celda).
+    // Verificación real: si el serial o el color no quedaron, partimos todas
+    // las columnas de la zona y repetimos. Así nunca queda una fila en blanco.
     const eco = claveSerial(hoja.getRange(fila, col.serial).getValue());
-    if (eco !== claveSerial(f.serial)) {
-      const ultima = Math.max(hoja.getLastRow(), fila, filaEnc);
-      const n = Math.max(ultima - filaEnc, 0);
+    const ecoBg = String(hoja.getRange(fila, col.serial).getBackground() || '').toLowerCase();
+    if (eco !== claveSerial(f.serial) || ecoBg !== fondo.toLowerCase()) {
+      const n = Math.max(hoja.getLastRow() - filaEnc, 1);
       COLS_ESCRITAS.forEach(function (c) {
         try { hoja.getRange(filaEnc + 1, c, n, 1).breakApart(); } catch (err) {}
       });
-      aplicar();
+      campos.forEach(function (par) {
+        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
+      });
+      try { hoja.getRange(fila, col.serial).setBackground(fondo).setFontColor('#000000'); } catch (err) {}
     }
   }
 
@@ -292,6 +341,8 @@ function aplicarEstados(hoja, filas, columnas) {
     if (mapa.porSerial[k]) existentes.push({ f: f, fila: mapa.porSerial[k] });
     else nuevos.push(f);
   });
+  diagEscritura.existentes = existentes.length;
+  diagEscritura.nuevos = nuevos.length;
   existentes.forEach(function (d) { escribir(d.f, d.fila); });
 
   // 2) Nuevos: primero reutilizan una fila vacía que haya dejado un sync
@@ -381,7 +432,10 @@ function doGet(e) {
         });
       }
     }
-    return jsonp(cb, { ok: true, hoja: nombre, columnas: col, filas: filas, generado: new Date().toISOString() });
+    let ultimo = null;
+    try { ultimo = JSON.parse(PropertiesService.getScriptProperties().getProperty('DIAG') || 'null'); } catch (err) {}
+    return jsonp(cb, { ok: true, version: VERSION, ultimo: ultimo,
+      hoja: nombre, columnas: col, filas: filas, generado: new Date().toISOString() });
   } catch (err) {
     return jsonp(cb, { ok: false, error: String(err) });
   }

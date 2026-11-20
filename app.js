@@ -448,6 +448,16 @@
         ${pendientes().length ? `<p class="small" style="color:#b45309">⏳ ${pendientes().length} registro(s) esperando para enviar</p>` : '<p class="small muted">✓ Sin registros pendientes</p>'}
         <p class="small muted">↻ Auto-sync: al abrir, al escanear, al volver la señal y cada 2 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
         ${sy?.coloreadas !== undefined ? `<p class="small muted">Sheet leído: ${sy.coloreadas} con color · ${sy.conDatos} con datos (fecha/horas/observaciones)</p>` : ''}
+        <div class="small mt" style="border:1px solid #bbb;border-radius:6px;padding:6px">
+          <b>Diagnóstico del Sheets</b><br>
+          Versión del script: <span class="mono">${esc(sy?.version || 'sin respuesta')}</span><br>
+          Último envío: ${esc(sy?.ultimo?.hora || '—')} · modo ${esc(sy?.ultimo?.modo || '—')} ·
+          hoja ${esc(sy?.ultimo?.hoja || '—')} · id ${esc(sy?.ultimo?.id || '—')}<br>
+          ${esc(sy?.ultimo?.recibidas ?? '—')} recibidas ·
+          ${esc(sy?.ultimo?.escritas ?? sy?.ultimo?.estadosAplicados ?? '—')} escritas
+          ${sy?.ultimo?.diag?.fallos?.length ? `<br><span style="color:#b91c1c">Errores: ${esc(sy.ultimo.diag.fallos.slice(0, 4).join(' | '))}</span>` : ''}
+          ${sy?.ultimo?.error ? `<br><span style="color:#b91c1c">Error: ${esc(sy.ultimo.error)}</span>` : ''}
+        </div>
         <label class="campo" for="cfgUrl">URL del Web App</label>
         <input class="campo" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(state.config.url || '')}">
         <label class="campo" for="cfgToken">Clave secreta</label>
@@ -1127,7 +1137,11 @@
       if (!escribiendo) render();
       toast(cambios + ' cambio(s) traídos del Sheet');
     }
-    escribir(K.sync, { hora: hora(), ok: true, cambios: cambios, coloreadas: coloreadas, conDatos: conDatos });
+    const diag = data.ultimo;
+    if (diag && diag.ok === false) toast('Sheets rechazó el envío: ' + (diag.error || 'revisa la clave'));
+    else if (diag?.diag?.fallos?.length) toast('Sheets: ' + diag.diag.fallos[0]);
+    escribir(K.sync, { hora: hora(), ok: true, cambios: cambios, coloreadas: coloreadas,
+      conDatos: conDatos, version: data.version, ultimo: data.ultimo });
   }
 
   let syncEnCurso = false;
