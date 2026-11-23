@@ -1,1 +1,100 @@
+name: Compilar APK
 
+# Uso: pestaña Actions → "Compilar APK" → Run workflow →
+# descargar el artifact "preventivos-apk" (zip con app-debug.apk).
+'on':
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Generar APK instalable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Descargar el código
+        uses: actions/checkout@v4
+
+      - name: 2. Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 3. Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 4. Preparar la carpeta web (raíz o subcarpeta)
+        run: |
+          ROOT="."
+          if [ ! -f index.html ] && [ -f preventivos-app/index.html ]; then ROOT="preventivos-app"; fi
+          echo "Usando archivos desde: $ROOT"
+          for f in index.html styles.css app.js manifest.webmanifest sw.js version.js; do
+            test -f "$ROOT/$f" || { echo "ERROR: falta $ROOT/$f"; exit 1; }
+          done
+          grep -q "APP_VERSION" "$ROOT/app.js" || { echo "ERROR: app.js es una versión vieja"; exit 1; }
+          mkdir -p www
+          cp "$ROOT/index.html" "$ROOT/styles.css" "$ROOT/app.js" "$ROOT/manifest.webmanifest" "$ROOT/sw.js" www/
+          cp -r "$ROOT/vendor" "$ROOT/data" "$ROOT/icons" www/
+
+      - name: 4b. Sello de versión de esta compilación
+        run: |
+          printf "window.APP_BUILD = '%s · %s';\n" "${GITHUB_SHA::7}" "$(date -u +%Y-%m-%dT%H:%MZ)" > www/version.js
+          cat www/version.js
+          # Recursos con versión: aunque el WebView de Android tenga caché,
+          # estos nombres son nuevos en cada compilación.
+          SHA="${GITHUB_SHA::7}"
+          sed -i "s#app.js#app.js?v=$SHA#; s#styles.css#styles.css?v=$SHA#; s#version.js#version.js?v=$SHA#" www/index.html
+          grep -E "app.js|version.js" www/index.html
+
+      - name: 5. Instalar Capacitor
+        run: npm init -y && npm install --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+
+      - name: 6. Crear el proyecto Android
+        run: |
+          npx cap init "Preventivos UDES" "com.udes.preventivos" --web-dir=www
+          # Cambiar el esquema a https cambia el origen (https://localhost) y
+          # con eso Android no reutiliza la caché WebView de APKs anteriores.
+          cat > capacitor.config.json <<'JSON'
+          {
+            "appId": "com.udes.preventivos",
+            "appName": "Preventivos UDES",
+            "webDir": "www",
+            "server": { "androidScheme": "https" }
+          }
+          JSON
+          npx cap add android
+
+      - name: 7. Habilitar la cámara en AndroidManifest
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          m = Path("android/app/src/main/AndroidManifest.xml")
+          s = m.read_text(encoding="utf-8")
+          if "android.permission.CAMERA" not in s:
+              s = s.replace("<application",
+                  '    <uses-permission android:name="android.permission.CAMERA" />\n'
+                  '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n\n'
+                  "    <application", 1)
+          if "usesCleartextTraffic" not in s:
+              s = s.replace("<application", '<application android:usesCleartextTraffic="true"', 1)
+          m.write_text(s, encoding="utf-8")
+          print("Camara habilitada en AndroidManifest")
+          PY
+
+      - name: 8. Compilar el APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: 9. Publicar el APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: preventivos-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
