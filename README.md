@@ -113,9 +113,11 @@ Si no hay internet en ese momento, la carga queda pendiente y se hace automátic
 
 Con la URL guardada:
 
-- **Al dar *Guardar y seguir*** (o dar de alta un equipo) se envía **solo ese registro** y se trae lo último del Sheet.
-- **Al escanear o buscar un serial** se reenvían pendientes y se traen cambios.
-- **Al abrir la APK**, **al volver la señal**, **al volver del background** y **cada 2 minutos**, la app envía la jornada completa y **trae los cambios** del Sheet.
+- **Al dar *Guardar y seguir*** (o dar de alta un equipo) se envía **solo ese registro**, sin bloquear la pantalla, y se consulta el Sheet en segundo plano.
+- **Al escanear o buscar un serial** se traen cambios. Si hay registros en cola, se reenvían **todos en un solo envío**. Varios escaneos seguidos se agrupan en una sola lectura.
+- **Al abrir la APK**, **al volver la señal**, **al volver del background** y **cada 2 minutos**, la app envía **solo los equipos registrados que cambiaron** y trae los cambios del Sheet. Si no hay cambios, no envía nada: solo consulta.
+
+Esto antes enviaba las 296 filas (casi todas pendientes) y hacía una lectura por escaneo. Ahora el envío con 0 registros pesa ~0.3 KB, el de 1 registro ~0.6 KB y el auto-sync sin cambios no hace POST. El script también agrupa la escritura de cada fila en 2 llamadas en vez de 11 y devuelve solo las filas registradas.
 
 El script busca el número de inventario en la pestaña creada y:
 
@@ -155,7 +157,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
-App instalada: 2026-11-20-v26 · a1b2c3d · 2026-11-20T19:35Z
+App instalada: 2026-11-20-v28 · a1b2c3d · 2026-11-20T19:35Z
 ```
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.

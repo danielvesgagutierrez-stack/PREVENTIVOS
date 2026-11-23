@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v27';
+  const APP_VERSION = '2026-11-20-v28';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -19,6 +19,7 @@
     pendiente: 'prev_pendiente_v4', // seriales que no se pudieron enviar (sin internet)
     sync: 'prev_sync_v4',           // resultado de la última sincronización
     cargar: 'prev_cargar_v4',       // cronograma pendiente de subir al Sheet
+    firma: 'prev_firma_v4',         // huella de lo ya enviado: evita reenviar lo idéntico
   };
 
   const ESTADOS = {
@@ -465,9 +466,9 @@
         <div class="small muted mt">Archivo: ${esc(state.archivoMeta?.nombre || state.data?.fuente || '—')}<br>Hoja: ${esc(state.archivoMeta?.hoja || '—')}</div>
       </div>
       <div class="card"><h2>Google Sheets (opcional)</h2>
-        <p class="small muted">Cada equipo se envía <b>al dar Guardar y seguir</b> a la hoja <b>${esc(nombreHoja())}</b>. Además, al abrir la app y cada 2 min se envía lo pendiente y se <b>traen los cambios</b> que hicieron en el Sheet (gana lo más reciente). Al escanear también se actualiza. Sin internet queda en cola.</p>
+        <p class="small muted">Solo se envían los equipos <b>registrados</b> a la hoja <b>${esc(nombreHoja())}</b>, al dar <b>Guardar y seguir</b>. El auto-sync (abrir, señal, background y cada 2 min) manda únicamente lo que cambió y trae lo del Sheet; si no hay cambios, solo consulta. Los escaneos seguidos se agrupan en una sola lectura. Sin internet queda en cola y se reenvía todo junto.</p>
         ${pendientes().length ? `<p class="small" style="color:#b45309">⏳ ${pendientes().length} registro(s) esperando para enviar</p>` : '<p class="small muted">✓ Sin registros pendientes</p>'}
-        <p class="small muted">↻ Auto-sync: al abrir, al escanear, al volver la señal y cada 2 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}</p>
+        <p class="small muted">↻ Auto-sync: al abrir, al escanear, al volver la señal y cada 2 min. Última: ${esc(sy?.hora || '—')}${sy?.cambios ? ' · ' + sy.cambios + ' cambio(s) traídos' : ''}${sy?.sinCambios ? ' · sin cambios (solo consulta)' : (sy?.enviadas !== undefined ? ' · ' + sy.enviadas + ' enviadas' : '')}</p>
         ${sy?.coloreadas !== undefined ? `<p class="small muted">Sheet leído: ${sy.coloreadas} con color · ${sy.conDatos} con datos (fecha/horas/observaciones)</p>` : ''}
         <div class="small mt" style="border:1px solid #bbb;border-radius:6px;padding:6px">
           <b>Diagnóstico</b><br>
@@ -608,9 +609,15 @@
     vibrar(120);
     state.seleccion = null; state.seleccionSerial = null;
     if (norm(state.config.url)) {
-      const enviado = await enviarFila(serial);
-      if (enviado) leerDesdeSheets(state.config.url, state.config.token);
-      toast(`${ESTADOS[estado].label} · ${serial} · ${enviado ? 'enviado a Sheets' : 'sin internet: se enviará después'}`);
+      // La pantalla no espera a la red: el registro ya quedó guardado en el
+      // teléfono. El envío sigue en segundo plano y se reintenta solo.
+      toast(`${ESTADOS[estado].label} · ${serial} · enviando…`);
+      enviarFila(serial).then((enviado) => {
+        if (enviado) {
+          if (!pendientes().length) escribir(K.firma, firmaSync());
+          solicitarPull(); toast(`${ESTADOS[estado].label} · ${serial} · enviado a Sheets`);
+        } else toast(`${ESTADOS[estado].label} · ${serial} · sin internet: se enviará después`);
+      });
     } else {
       toast(`${ESTADOS[estado].label} · ${serial}`);
     }
@@ -642,19 +649,24 @@
     setEstado(serial, { estado: 'ALTA', novedad: nota, horas, horasTexto: ht });
     guardarDataset(); vibrar(120);
     if (norm(state.config.url)) {
-      const enviado = await enviarFila(serial);
-      if (enviado) leerDesdeSheets(state.config.url, state.config.token);
-      toast(enviado ? 'Agregado en azul · enviado a Sheets' : 'Agregado en azul · sin internet: se enviará después');
+      toast('Agregado en azul · enviando…');
+      enviarFila(serial).then((enviado) => {
+        if (enviado) {
+          if (!pendientes().length) escribir(K.firma, firmaSync());
+          solicitarPull(); toast('Agregado en azul · enviado a Sheets');
+        } else toast('Agregado en azul · sin internet: se enviará después');
+      });
     } else {
       toast('Agregado en azul');
     }
     go('#/equipo/' + encodeURIComponent(serial));
   }
 
-  /** Cada escaneo/búsqueda reenvía pendientes y trae lo último del Sheet. */
+  /** Al escanear: solo trae cambios (o reenvía la cola). Nada de POST completo. */
   function actualizarPorScan() {
-    if (!norm(state.config.url)) return;
-    reintentarPendientes().then(() => leerDesdeSheets(state.config.url, state.config.token));
+    if (!norm(state.config.url) || !state.data) return;
+    if (pendientes().length) reintentarPendientes().then(() => solicitarPull());
+    else solicitarPull();
   }
 
   function buscarSerial(texto) {
@@ -1016,10 +1028,28 @@
     });
   }
 
-  /** Filas con el estado actual, para aplicarlas encima del cronograma recién subido. */
+  /**
+   * Solo los equipos que el usuario realmente guardó. Antes se enviaban los 296
+   * (casi todos PENDIENTE) y el script los descartaba; ahora el payload viaja
+   * ligero y Apps Script ni siquiera los procesa.
+   */
   function filasActuales() {
     const j = jornada(); if (!j) return [];
-    return items().map((i) => filaPayload(i, progreso(j.id, i.serial), j, true));
+    const prs = state.progress[j.id] || {};
+    const out = [];
+    for (const i of items()) {
+      const pr = prs[i.serial];
+      if (!pr?.registrado) continue;
+      out.push(filaPayload(i, pr, j, true));
+    }
+    return out;
+  }
+
+  /** Huella de lo enviado. Si no cambió, el auto-sync solo consulta el Sheet. */
+  function firmaSync() {
+    const j = jornada(); if (!j) return '';
+    return [nombreHoja(), j.id, filasActuales().map((f) =>
+      [f.serial, f.estado, f.fecha, f.horasTexto, f.observaciones].join('~')).join(';')].join('|');
   }
 
   /** Convierte la hoja original del Excel en un payload que Apps Script puede recrear. */
@@ -1074,6 +1104,10 @@
         ...base, filas: filasActuales(),
       }));
       localStorage.removeItem(K.cargar);
+      // La carga completa ya incluyó todos los registros: no hace falta volver
+      // a enviarlos en el primer auto-sync.
+      escribir(K.pendiente, []);
+      escribir(K.firma, firmaSync());
       return true;
     } catch (e) {
       escribir(K.cargar, { hoja: nombre, error: e.message });
@@ -1105,26 +1139,74 @@
     } catch (e) { marcarPendiente(serial); return false; }
   }
 
+  /** Reenvía toda la cola en UN solo POST en vez de uno por serial. */
   async function reintentarPendientes() {
-    if (!pendientes().length || !norm(state.config.url)) return;
-    for (const s of pendientes().slice()) await enviarFila(s);
+    const url = norm(state.config.url);
+    const lista = pendientes().filter((s) => items().some((i) => i.serial === s));
+    if (!url || !lista.length) return;
+    const j = jornada(); if (!j) return;
+    const filas = lista.map((s) => filaPayload(items().find((i) => i.serial === s),
+      progreso(j.id, s), j, true));
+    try {
+      await postSheet(url, JSON.stringify({ token: state.config.token,
+        hoja: nombreHoja(), jornada: j.id, fecha: hora(),
+        tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
+        total: items().length, modo: 'fila', filas }));
+      escribir(K.pendiente, []);
+      escribir(K.firma, firmaSync());
+    } catch (_) { /* se quedan en cola para el próximo auto-sync */ }
+  }
+
+  /* Una sola lectura JSONP a la vez. Varios escaneos seguidos se agrupan y
+   * nunca quedan scripts colgados esperando 15 s. */
+  let pullEnCurso = false, pullPendiente = false, pullTimer = null, ultimoPull = 0;
+  const PULL_MIN = 2000;
+
+  function terminarPull() {
+    pullEnCurso = false;
+    ultimoPull = Date.now();
+    if (pullPendiente) { pullPendiente = false; setTimeout(solicitarPull, 60); }
+  }
+
+  /** Pide traer cambios del Sheet, agrupando las solicitudes simultáneas. */
+  function solicitarPull() {
+    if (!state.data || !norm(state.config.url)) return;
+    if (pullEnCurso) { pullPendiente = true; return; }
+    const espera = PULL_MIN - (Date.now() - ultimoPull);
+    if (espera > 0) {
+      clearTimeout(pullTimer);
+      pullTimer = setTimeout(() => { ultimoPull = Date.now() - PULL_MIN + 1; solicitarPull(); }, espera);
+      return;
+    }
+    clearTimeout(pullTimer);
+    leerDesdeSheets(state.config.url, state.config.token);
   }
 
   /** Lee el Google Sheet mediante JSONP (Apps Script no manda cabeceras CORS). */
   function leerDesdeSheets(url, token) {
     const destino = norm(url || state.config.url);
     if (!destino || !state.data) return;
+    pullEnCurso = true;
     const cb = '__prevPull';
-    window[cb] = aplicarCambiosSheet;
+    let terminado = false;
+    const s = document.createElement('script');
+    const t = setTimeout(() => fin(false), 15000);
+    function fin(ok) {
+      if (terminado) return;
+      terminado = true;
+      clearTimeout(t);
+      try { s.remove(); } catch (_) {}
+      if (!ok) escribir(K.sync, { hora: hora(), ok: false, error: 'No se pudo leer el Sheet' });
+      terminarPull();
+    }
+    window[cb] = function (data) { try { aplicarCambiosSheet(data); } finally { fin(true); } };
     const sep = destino.indexOf('?') >= 0 ? '&' : '?';
     const src = destino + sep + 'token=' + encodeURIComponent(token || state.config.token || 'udes2026')
       + '&hoja=' + encodeURIComponent(nombreHoja())
       + '&callback=' + cb + '&t=' + Date.now();
-    const s = document.createElement('script');
     s.src = src;
-    s.onerror = () => { escribir(K.sync, { hora: hora(), ok: false, error: 'No se pudo leer el Sheet' }); };
+    s.onerror = () => fin(false);
     document.head.appendChild(s);
-    setTimeout(() => s.remove(), 15000);
   }
 
   /** Aplica al teléfono lo que cambiaron en el Sheet; gana lo más reciente. */
@@ -1180,36 +1262,57 @@
     if (!url) { if (!silent) toast('Configura la URL del Web App'); return false; }
     if (syncEnCurso) return false;
     syncEnCurso = true;
-    const cfgUrl = url;
-    const cfgToken = $('#cfgToken')?.value ?? state.config.token;
-    const j = jornada(); const col = columnas();
-    const filas = items().map((i) => filaPayload(i, progreso(j.id, i.serial), j, true));
-    let ok = false, msg = '';
     try {
-      await postSheet(cfgUrl, JSON.stringify({ token: cfgToken,
-        hoja: nombreHoja(), jornada: j.id, fecha: hora(),
-        tecnico: state.config.tecnico || j.tecnico || '', columnas: col,
-        total: items().length, modo: 'total', filas }) );
-      escribir(K.pendiente, []);
-      ok = true; msg = 'Enviado y consultado ' + hora();
-    } catch (e) { msg = 'No se pudo enviar: ' + e.message; }
-    if (ok) leerDesdeSheets(cfgUrl, cfgToken);
-    escribir(K.sync, { hora: hora(), ok: ok, cambios: 0 });
-    if (!silent) {
-      if (out) out.textContent = msg + '. Revisa la hoja ' + nombreHoja() + '.';
-      if (ok) { toast('Datos enviados y consultados'); vibrar(100); setTimeout(() => render(), 2500); }
-    }
-    syncEnCurso = false;
-    return ok;
+      const cfgToken = $('#cfgToken')?.value ?? state.config.token;
+      const j = jornada(); if (!j) return false;
+      const filas = filasActuales();
+      const firma = firmaSync();
+      const sinCambios = !!silent && !pendientes().length && firma === leer(K.firma, '');
+
+      // El auto-sync no vuelve a enviar lo idéntico: solo consulta el Sheet.
+      if (sinCambios) {
+        escribir(K.sync, { hora: hora(), ok: true, cambios: 0, sinCambios: true, enviadas: 0 });
+        solicitarPull();
+        return true;
+      }
+
+      let ok = false, msg = '';
+      try {
+        await postSheet(url, JSON.stringify({ token: cfgToken,
+          hoja: nombreHoja(), jornada: j.id, fecha: hora(),
+          tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
+          total: items().length, modo: 'total', filas }));
+        escribir(K.pendiente, []);
+        escribir(K.firma, firma);
+        ok = true; msg = 'Enviado y consultado ' + hora();
+      } catch (e) {
+        msg = 'No se pudo enviar: ' + e.message;
+        // Si falla el envío completo, todos los registrados quedan en cola:
+        // así un envío individual posterior no puede marcarlos como enviados.
+        const p = pendientes();
+        filas.forEach((f) => { if (p.indexOf(f.serial) === -1) p.push(f.serial); });
+        escribir(K.pendiente, p);
+      }
+      escribir(K.sync, { hora: hora(), ok: ok, cambios: 0, enviadas: filas.length });
+      if (ok) solicitarPull();
+      if (!silent) {
+        if (out) out.textContent = msg + (ok ? '. Revisa la hoja ' + nombreHoja() + '.' : '.');
+        if (ok) { toast('Datos enviados y consultados'); vibrar(100); setTimeout(() => render(), 2500); }
+      }
+      return ok;
+    } finally { syncEnCurso = false; }
   }
 
+  let autoEnCurso = false;
   async function sincronizarAuto() {
-    if (!state.data) return;
-    const pendiente = leer(K.cargar, null);
-    if (pendiente && norm(state.config.url)) await subirCronograma(pendiente.hoja);
-    if (!norm(state.config.url)) return;
-    await reintentarPendientes();
-    await sincronizar(true);
+    if (autoEnCurso || !state.data) return;
+    autoEnCurso = true;
+    try {
+      const pendiente = leer(K.cargar, null);
+      if (pendiente && norm(state.config.url)) await subirCronograma(pendiente.hoja);
+      if (!norm(state.config.url)) return;
+      await sincronizar(true);
+    } finally { autoEnCurso = false; }
   }
 
   function generarEtiquetas() {

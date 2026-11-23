@@ -17,7 +17,7 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
-const VERSION = '2026-11-20e'; // se muestra en Datos para confirmar que está desplegado
+const VERSION = '2026-11-20f'; // se muestra en Datos para confirmar que está desplegado
 let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
@@ -271,28 +271,43 @@ function aplicarEstados(hoja, filas, columnas) {
    * únicamente la que toca la fila que vamos a escribir; después se vuelve a
    * unir el trozo de arriba y el de abajo para conservar el formato.
    */
-  function romperCombinadas(fila) {
-    try {
+  // getMergedRanges() es costoso: antes se pedía para CADA fila registrada.
+  // Se calcula una vez y solo se refresca cuando una combinación se parte o
+  // cuando se inserta una fila (que corre los índices).
+  let mergesCache = null;
+  function mergesActuales() {
+    if (!mergesCache) {
       const n = Math.max(hoja.getLastRow() - filaEnc, 1);
-      const lista = hoja.getRange(filaEnc + 1, 1, n, ancho).getMergedRanges();
-      lista.forEach(function (mr) {
-        const ini = mr.getRow(), fin = ini + mr.getNumRows() - 1;
-        if (fila < ini || fila > fin) return;
-        const c0 = mr.getColumn(), nc = mr.getNumColumns();
+      mergesCache = hoja.getRange(filaEnc + 1, 1, n, ancho).getMergedRanges().map(function (mr) {
         let valor = '';
         try { valor = mr.getValue(); } catch (err) {}
-        try { mr.breakApart(); } catch (err) {
-          diagEscritura.fallos.push('unir fila ' + fila + ': ' + String(err));
-        }
-        try { if (fila > ini) hoja.getRange(ini, c0, fila - ini, nc).merge(); } catch (err) {}
+        return { ini: mr.getRow(), fin: mr.getRow() + mr.getNumRows() - 1,
+          c0: mr.getColumn(), nc: mr.getNumColumns(), valor: valor };
+      });
+    }
+    return mergesCache;
+  }
+
+  function romperCombinadas(fila) {
+    try {
+      const lista = mergesActuales();
+      let toco = false;
+      lista.forEach(function (m) {
+        if (fila < m.ini || fila > m.fin) return;
+        toco = true;
+        try { hoja.getRange(m.ini, m.c0, m.fin - m.ini + 1, m.nc).breakApart(); }
+        catch (err) { diagEscritura.fallos.push('unir fila ' + fila + ': ' + String(err)); }
+        try { if (fila > m.ini) hoja.getRange(m.ini, m.c0, fila - m.ini, m.nc).merge(); } catch (err) {}
         try {
-          if (fila < fin) {
-            const abajo = hoja.getRange(fila + 1, c0, fin - fila, nc);
-            abajo.setValue(valor); abajo.merge();
+          if (fila < m.fin) {
+            const abajo = hoja.getRange(fila + 1, m.c0, m.fin - fila, m.nc);
+            abajo.setValue(m.valor); abajo.merge();
           }
         } catch (err) {}
       });
+      if (toco) mergesCache = null;
     } catch (err) {
+      mergesCache = null;
       // Compatibilidad: si getMergedRanges no está, se parten columnas enteras.
       COLS_ESCRITAS.forEach(function (c) {
         try { hoja.getRange(filaEnc + 1, c, Math.max(hoja.getLastRow() - filaEnc, 1), 1).breakApart(); } catch (e) {}
@@ -310,10 +325,26 @@ function aplicarEstados(hoja, filas, columnas) {
       [col.duracion, f.horasTexto || f.horas], [col.seguimiento, ''],
       [col.observaciones, f.observaciones],
     ];
-    campos.forEach(function (par) {
-      try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); }
-      catch (err) { diagEscritura.fallos.push('fila ' + fila + ' col ' + par[0] + ': ' + String(err)); }
-    });
+    // Antes: 11 llamadas setValue por equipo. Ahora: 2 setValues (se salta
+    // FECHA PROGRAMADA para no convertir una posible fórmula en texto).
+    function aplicarSegmento(pares) {
+      if (!pares.length) return;
+      let min = Infinity, max = -Infinity;
+      pares.forEach(function (p) { min = Math.min(min, p[0]); max = Math.max(max, p[0]); });
+      try {
+        const rango = hoja.getRange(fila, min, 1, max - min + 1);
+        const vals = rango.getValues()[0];
+        pares.forEach(function (p) { vals[p[0] - min] = p[1] == null ? '' : p[1]; });
+        rango.setValues([vals]);
+      } catch (err) {
+        pares.forEach(function (p) {
+          try { hoja.getRange(fila, p[0]).setValue(p[1] == null ? '' : p[1]); }
+          catch (e) { diagEscritura.fallos.push('fila ' + fila + ' col ' + p[0] + ': ' + String(e)); }
+        });
+      }
+    }
+    aplicarSegmento(campos.filter(function (p) { return p[0] < col.programada; }));
+    aplicarSegmento(campos.filter(function (p) { return p[0] > col.programada; }));
     const fondo = FONDOS[f.estado] || FONDOS.PENDIENTE;
     try {
       hoja.getRange(fila, col.serial).setBackground(fondo).setFontColor('#000000');
@@ -328,9 +359,9 @@ function aplicarEstados(hoja, filas, columnas) {
       COLS_ESCRITAS.forEach(function (c) {
         try { hoja.getRange(filaEnc + 1, c, n, 1).breakApart(); } catch (err) {}
       });
-      campos.forEach(function (par) {
-        try { hoja.getRange(fila, par[0]).setValue(par[1] == null ? '' : par[1]); } catch (err) {}
-      });
+      mergesCache = null;
+      aplicarSegmento(campos.filter(function (p) { return p[0] < col.programada; }));
+      aplicarSegmento(campos.filter(function (p) { return p[0] > col.programada; }));
       try { hoja.getRange(fila, col.serial).setBackground(fondo).setFontColor('#000000'); } catch (err) {}
     }
   }
@@ -359,6 +390,7 @@ function aplicarEstados(hoja, filas, columnas) {
     if (libre) { escribir(f, libre); return; }
     const base = m.ultimaZona[zona] || m.ultima;
     hoja.insertRowsAfter(base, 1);
+    mergesCache = null; // las combinaciones se corrieron con la fila nueva
     escribir(f, base + 1);
   });
 
@@ -420,18 +452,25 @@ function doGet(e) {
         const serial = String(vals[i][col.serial - 1] || '').trim();
         if (!serial) continue;
         const color = String(fondos[i][col.serial - 1] || '').toLowerCase();
+        const estado = inverso[color] || '';
         const fechaRaw = vals[i][col.ejecutada - 1];
         const fecha = fechaRaw instanceof Date
           ? fechaRaw.toISOString().slice(0, 16).replace('T', ' ')
           : String(fechaRaw || '');
+        const horasTexto = String(vals[i][col.duracion - 1] || '');
+        const observaciones = String(vals[i][col.observaciones - 1] || '');
+        // El cronograma tiene otros colores y cientos de filas sin registrar.
+        // La app las ignoraría de todos modos: no vale la pena enviarlas.
+        if (!estado || estado === 'PENDIENTE') continue;
+        if (!fecha && !horasTexto && !observaciones) continue;
         filas.push({
           serial: serial,
-          estado: inverso[color] || '',
+          estado: estado,
           fecha: fecha,
           tecnico: String(vals[i][col.tecnico - 1] || ''),
           semestre: String(vals[i][col.semestre - 1] || ''),
-          horasTexto: String(vals[i][col.duracion - 1] || ''),
-          observaciones: String(vals[i][col.observaciones - 1] || ''),
+          horasTexto: horasTexto,
+          observaciones: observaciones,
         });
       }
     }
