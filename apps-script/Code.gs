@@ -17,7 +17,7 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
-const VERSION = '2026-11-20f'; // se muestra en Datos para confirmar que está desplegado
+const VERSION = '2026-11-20g'; // se muestra en Datos para confirmar que está desplegado
 let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
@@ -459,10 +459,11 @@ function doGet(e) {
           : String(fechaRaw || '');
         const horasTexto = String(vals[i][col.duracion - 1] || '');
         const observaciones = String(vals[i][col.observaciones - 1] || '');
-        // El cronograma tiene otros colores y cientos de filas sin registrar.
-        // La app las ignoraría de todos modos: no vale la pena enviarlas.
+        // El cronograma tiene otros colores que la app no interpreta y que no
+        // deben traerse. SÍ se envían los cambios de color aunque no traigan
+        // fecha/observaciones: pintar una celda de verde/azul también es un
+        // cambio del Sheet y la app debe verlo.
         if (!estado || estado === 'PENDIENTE') continue;
-        if (!fecha && !horasTexto && !observaciones) continue;
         filas.push({
           serial: serial,
           estado: estado,

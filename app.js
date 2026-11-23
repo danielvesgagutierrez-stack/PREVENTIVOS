@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v28';
+  const APP_VERSION = '2026-11-20-v29';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -1052,6 +1052,11 @@
       [f.serial, f.estado, f.fecha, f.horasTexto, f.observaciones].join('~')).join(';')].join('|');
   }
 
+  /** Huella de una fila leída del Sheet: detecta cambios aunque la fecha sea igual. */
+  function firmaFilaSheet(f) {
+    return [f.estado, norm(f.fecha), norm(f.horasTexto), norm(f.observaciones)].join('~');
+  }
+
   /** Convierte la hoja original del Excel en un payload que Apps Script puede recrear. */
   async function serializarHoja(nombreHoja) {
     const blob = await archivoLeer();
@@ -1209,7 +1214,7 @@
     document.head.appendChild(s);
   }
 
-  /** Aplica al teléfono lo que cambiaron en el Sheet; gana lo más reciente. */
+  /** Aplica al teléfono lo que cambiaron en el Sheet, incluso solo el color. */
   function aplicarCambiosSheet(data) {
     if (!data || !data.ok) { if (data?.error) toast('Sheets: ' + data.error); return; }
     const j = jornada(); if (!j) return;
@@ -1217,31 +1222,47 @@
     const todas = data.filas || [];
     const coloreadas = todas.filter((f) => f.estado).length;
     const conDatos = todas.filter((f) => norm(f.fecha) || norm(f.observaciones) || norm(f.horasTexto)).length;
+    const baseSync = { hora: hora(), ok: true, coloreadas: coloreadas,
+      conDatos: conDatos, version: data.version, ultimo: data.ultimo };
+
+    // Si todavía hay datos locales sin enviar, una lectura vieja del Sheet no
+    // debe sobrescribirlos. El auto-sync los envía y vuelve a consultar.
+    if (pendientes().length || leer(K.firma, null) !== firmaSync()) {
+      escribir(K.sync, Object.assign({}, baseSync, { cambios: 0, esperandoEnvio: true }));
+      return;
+    }
+
     let cambios = 0;
-    (data.filas || []).forEach((f) => {
+    todas.forEach((f) => {
       const item = j.items.find((i) => i.serial === f.serial);
       if (!item || !f.estado || f.estado === 'PENDIENTE') return;
-      // Si el Sheet solo tiene el color pero no datos, no sobrescribimos el equipo.
-      if (!norm(f.fecha) && !norm(f.observaciones) && !norm(f.horasTexto)) return;
       const pr = state.progress[j.id][f.serial];
-      if (pr && pr.fecha && norm(f.fecha) && norm(f.fecha) <= norm(pr.fecha)) return;
+      const firma = firmaFilaSheet(f);
+      if (pr?.sheetFirma === firma) return; // ya se aplicó esta misma fila
+      const cambiaEstado = !pr || pr.estado !== f.estado;
+      const tieneDatos = !!(norm(f.fecha) || norm(f.observaciones) || norm(f.horasTexto));
+      if (!tieneDatos && !cambiaEstado) return; // mismo color que ya tenemos
       const h = horasDeTexto(f.horasTexto);
+      const novedad = norm(f.observaciones)
+        || (cambiaEstado ? observacionFinal(f.estado, '', item) : (pr?.novedad || ''));
       state.progress[j.id][f.serial] = {
         estado: f.estado,
-        novedad: norm(f.observaciones) || observacionFinal(f.estado, '', item),
+        novedad: novedad,
         horas: h || (pr?.horas || 1),
-        horasTexto: norm(f.horasTexto) || horasTexto(pr?.horas || 1),
-        fecha: norm(f.fecha) || (hoy() + ' ' + hora().slice(11)),
-        tecnico: f.tecnico || state.config.tecnico || j.tecnico || '',
-        // Un cambio real del Sheet (color + datos) también cuenta como registro.
+        horasTexto: norm(f.horasTexto) || (pr?.horasTexto || horasTexto(pr?.horas || 1)),
+        fecha: norm(f.fecha) || (pr?.fecha || hoy() + ' ' + hora().slice(11)),
+        tecnico: f.tecnico || pr?.tecnico || state.config.tecnico || j.tecnico || '',
         registrado: true,
+        // El Sheet ya tiene este contenido: no lo reenviamos de vuelta.
+        sheetFirma: firma,
       };
       item.estado = f.estado;
-      item.novedad = state.progress[j.id][f.serial].novedad;
+      item.novedad = novedad;
       cambios++;
     });
     if (cambios) {
       guardarProgreso(); guardarDataset();
+      escribir(K.firma, firmaSync());
       const activo = document.activeElement;
       const escribiendo = activo && /^(INPUT|TEXTAREA|SELECT)$/.test(activo.tagName);
       if (!escribiendo) render();
@@ -1250,8 +1271,7 @@
     const diag = data.ultimo;
     if (diag && diag.ok === false) toast('Sheets rechazó el envío: ' + (diag.error || 'revisa la clave'));
     else if (diag?.diag?.fallos?.length) toast('Sheets: ' + diag.diag.fallos[0]);
-    escribir(K.sync, { hora: hora(), ok: true, cambios: cambios, coloreadas: coloreadas,
-      conDatos: conDatos, version: data.version, ultimo: data.ultimo });
+    escribir(K.sync, Object.assign({}, baseSync, { cambios: cambios }));
   }
 
   let syncEnCurso = false;

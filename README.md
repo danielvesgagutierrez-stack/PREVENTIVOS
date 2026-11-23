@@ -126,7 +126,7 @@ El script busca el número de inventario en la pestaña creada y:
 - escribe fecha ejecutada, técnico, semestre, horas y observaciones;
 - deja `FECHA SEGUIMIENTO` vacío y conserva `FECHA PROGRAMADA`.
 
-Al traer cambios, gana el registro **más reciente** (se compara la fecha). La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*.
+Al traer cambios, la app compara el **contenido completo** de la fila (estado, fecha, horas y observaciones), no solo la fecha. Por eso ahora detecta aunque cambies **solo el color** a verde/azul/rojo o edites una observación sin tocar la fecha: el cambio se aplica igual. Los colores del cronograma original que no son de la app se ignoran. La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*.
 
 Si no hay internet, el registro queda en cola en el teléfono y se envía solo al volver la señal. La pestaña **Datos** muestra cuántos registros faltan por enviar.
 
@@ -157,7 +157,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
-App instalada: 2026-11-20-v28 · a1b2c3d · 2026-11-20T19:35Z
+App instalada: 2026-11-20-v29 · a1b2c3d · 2026-11-20T19:35Z
 ```
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.

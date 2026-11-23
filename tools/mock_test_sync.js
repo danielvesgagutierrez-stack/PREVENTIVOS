@@ -120,9 +120,13 @@
     r = post(Object.assign({}, base, { filas: [alta] }));
     ok('alta repetida no duplica', hoja.getLastRow() === antes && inserts === 1, JSON.stringify({ filas: hoja.getLastRow(), inserts }));
 
+    // Un cambio de color sin fecha/observaciones también debe llegar a la app.
+    hoja.bg[2][3] = '#00B0F0';
     const pull = JSON.parse(window.__api.doGet({ parameter: { token: 'udes2026', hoja: '2026-B', callback: '__prevPull' } }).toString().replace(/^__prevPull\(|\);$/g, ''));
-    ok('pull trae solo registrados', pull.ok && pull.filas.length === 2 && pull.filas.every((f) => ['OK', 'ALTA'].includes(f.estado)),
-      JSON.stringify(pull.filas.map((f) => [f.serial, f.estado])));
+    ok('pull trae registrados y cambios de solo color',
+      pull.ok && pull.filas.length === 3 &&
+      pull.filas.some((f) => f.serial === '22222222' && f.estado === 'ALTA' && !f.fecha && !f.horasTexto && !f.observaciones),
+      JSON.stringify(pull.filas.map((f) => [f.serial, f.estado, f.fecha, f.horasTexto, f.observaciones])));
 
     const mal = post(Object.assign({}, base, { hoja: 'Preventivo B 2026', filas: [alta] }));
     ok('hoja inexistente no crea hoja', mal.ok === false && /No existe la hoja/.test(mal.error || ''), JSON.stringify(mal));
