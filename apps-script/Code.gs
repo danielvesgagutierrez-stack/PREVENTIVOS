@@ -17,7 +17,7 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
-const VERSION = '2026-11-20g'; // se muestra en Datos para confirmar que está desplegado
+const VERSION = '2026-11-20i'; // se muestra en Datos para confirmar que está desplegado
 let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
@@ -26,6 +26,47 @@ const FONDOS = {
   ALTA: '#00B0F0',
   PENDIENTE: '#E9EEF4',
 };
+// Google Sheets permite elegir matices. Estos son los que la gente usa con más
+// frecuencia para los mismos estados (azul claro, verde claro, etc.).
+const ALIAS = {
+  OK: ['#b6d7a8', '#d9ead3', '#93c47d'],
+  NOVEDAD: ['#f6b26b', '#f9cb9c', '#ffd966'],
+  AUSENTE: ['#e06666', '#f4cccc', '#cc0000'],
+  ALTA: ['#6fa8dc', '#9fc5e8', '#cfe2f3', '#3d85c6', '#0b5394', '#a4c2f4', '#4285f4', '#29b6f6'],
+  PENDIENTE: ['#efefef', '#f3f3f3', '#e7e6e6'],
+};
+const INVERSO_COLOR = {};
+for (const _k in FONDOS) INVERSO_COLOR[FONDOS[_k].toLowerCase()] = _k;
+for (const _k in ALIAS) ALIAS[_k].forEach(function (h) { INVERSO_COLOR[h] = _k; });
+
+function rgbDe(hex) {
+  const h = String(hex || '').toLowerCase().replace(/^0x/, '').replace(/^#/, '');
+  if (!/^[0-9a-f]{6}$/.test(h)) return null;
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+/** Traduce el fondo de la celda a estado, aceptando cualquier tono usual. */
+function estadoDeColor(hex) {
+  const exacto = INVERSO_COLOR[String(hex || '').toLowerCase().replace(/^0x/, '')];
+  if (exacto) return exacto;
+  const c = rgbDe(hex);
+  if (!c) return '';
+  const r = c[0], g = c[1], b = c[2];
+  // El cronograma original no pinta la columna del serial, así que cualquier
+  // azul/verde/rojo/ámbar que ponga ahí el usuario es un cambio intencional.
+  // Esto cubre los tonos de la paleta de Google Sheets y los personalizados.
+  if (b >= 135 && b - r >= 30 && b - g >= 12) return 'ALTA';
+  if (g >= 105 && g - r >= 22 && g - b >= 8) return 'OK';
+  if (r >= 170 && g >= 95 && r - b >= 55 && g - b >= 20) return 'NOVEDAD';
+  if (r >= 140 && r - g >= 55 && r - b >= 55) return 'AUSENTE';
+  let mejor = '', dist = Infinity;
+  for (const k in FONDOS) {
+    const f = rgbDe(FONDOS[k]);
+    const d = Math.sqrt(Math.pow(r - f[0], 2) + Math.pow(g - f[1], 2) + Math.pow(b - f[2], 2));
+    if (d < dist) { dist = d; mejor = k; }
+  }
+  return dist <= 18 ? mejor : '';
+}
 const HEADERS = [
   'EDIFICIO', 'PISO', 'OFICINA', 'SERIAL UDES', 'TIPO EQUIPO', 'FECHA PROGRAMADA',
   'FECHA EJECUTADA', 'TÉCNICO', 'SEMESTRE', 'TIEMPO EJECUCIÓN', 'FECHA SEGUIMIENTO', 'OBSERVACIONES',
@@ -446,13 +487,16 @@ function doGet(e) {
       const rango = hoja.getRange(col.filaEncabezado + 1, 1, ultima - col.filaEncabezado, ancho);
       const vals = rango.getValues();
       const fondos = rango.getBackgrounds();
-      const inverso = {};
-      for (const k in FONDOS) inverso[String(FONDOS[k]).toLowerCase()] = k;
+      let ed = '', pi = '', of = '';
       for (let i = 0; i < vals.length; i++) {
+        // Las columnas de área suelen venir combinadas: el valor solo está en
+        // la primera fila. Se rellena hacia abajo para ubicar altas nuevas.
+        if (String(vals[i][col.edificio - 1] || '').trim()) ed = String(vals[i][col.edificio - 1]).trim();
+        if (String(vals[i][col.piso - 1] || '').trim()) pi = String(vals[i][col.piso - 1]).trim();
+        if (String(vals[i][col.oficina - 1] || '').trim()) of = String(vals[i][col.oficina - 1]).trim();
         const serial = String(vals[i][col.serial - 1] || '').trim();
         if (!serial) continue;
-        const color = String(fondos[i][col.serial - 1] || '').toLowerCase();
-        const estado = inverso[color] || '';
+        const estado = estadoDeColor(fondos[i][col.serial - 1]);
         const fechaRaw = vals[i][col.ejecutada - 1];
         const fecha = fechaRaw instanceof Date
           ? fechaRaw.toISOString().slice(0, 16).replace('T', ' ')
@@ -467,6 +511,10 @@ function doGet(e) {
         filas.push({
           serial: serial,
           estado: estado,
+          edificio: ed,
+          piso: pi,
+          oficina: of,
+          tipo: String(vals[i][col.tipo - 1] || ''),
           fecha: fecha,
           tecnico: String(vals[i][col.tecnico - 1] || ''),
           semestre: String(vals[i][col.semestre - 1] || ''),

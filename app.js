@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v29';
+  const APP_VERSION = '2026-11-20-v31';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -614,7 +614,7 @@
       toast(`${ESTADOS[estado].label} · ${serial} · enviando…`);
       enviarFila(serial).then((enviado) => {
         if (enviado) {
-          if (!pendientes().length) escribir(K.firma, firmaSync());
+          if (!pendientes().length) escribir(K.firma, firmaSyncObj());
           solicitarPull(); toast(`${ESTADOS[estado].label} · ${serial} · enviado a Sheets`);
         } else toast(`${ESTADOS[estado].label} · ${serial} · sin internet: se enviará después`);
       });
@@ -652,7 +652,7 @@
       toast('Agregado en azul · enviando…');
       enviarFila(serial).then((enviado) => {
         if (enviado) {
-          if (!pendientes().length) escribir(K.firma, firmaSync());
+          if (!pendientes().length) escribir(K.firma, firmaSyncObj());
           solicitarPull(); toast('Agregado en azul · enviado a Sheets');
         } else toast('Agregado en azul · sin internet: se enviará después');
       });
@@ -1019,9 +1019,9 @@
   }
 
   /** POST al Web App con límite de tiempo: si la señal se cuelga, se encola el registro. */
-  function postSheet(url, body) {
+  function postSheet(url, body, ms) {
     return new Promise((res, rej) => {
-      const t = setTimeout(() => rej(new Error('Tiempo de espera agotado')), 8000);
+      const t = setTimeout(() => rej(new Error('Tiempo de espera agotado')), ms || 12000);
       fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body })
         .then(() => { clearTimeout(t); res(); })
         .catch((e) => { clearTimeout(t); rej(e); });
@@ -1045,16 +1045,25 @@
     return out;
   }
 
-  /** Huella de lo enviado. Si no cambió, el auto-sync solo consulta el Sheet. */
-  function firmaSync() {
-    const j = jornada(); if (!j) return '';
-    return [nombreHoja(), j.id, filasActuales().map((f) =>
-      [f.serial, f.estado, f.fecha, f.horasTexto, f.observaciones].join('~')).join(';')].join('|');
-  }
-
   /** Huella de una fila leída del Sheet: detecta cambios aunque la fecha sea igual. */
   function firmaFilaSheet(f) {
     return [f.estado, norm(f.fecha), norm(f.horasTexto), norm(f.observaciones)].join('~');
+  }
+
+  /** Guardamos la huella POR SERIAL para reenviar solo lo que cambió. */
+  function firmaSyncObj() {
+    const out = {};
+    filasActuales().forEach((f) => { out[f.serial] = firmaFilaSheet(f); });
+    return out;
+  }
+
+  function filasCambiantes() {
+    const actuales = filasActuales();
+    const guardada = leer(K.firma, null);
+    if (!guardada || typeof guardada !== 'object' || Array.isArray(guardada)) return actuales;
+    const firma = {};
+    actuales.forEach((f) => { firma[f.serial] = firmaFilaSheet(f); });
+    return actuales.filter((f) => guardada[f.serial] !== firma[f.serial]);
   }
 
   /** Convierte la hoja original del Excel en un payload que Apps Script puede recrear. */
@@ -1112,7 +1121,7 @@
       // La carga completa ya incluyó todos los registros: no hace falta volver
       // a enviarlos en el primer auto-sync.
       escribir(K.pendiente, []);
-      escribir(K.firma, firmaSync());
+      escribir(K.firma, firmaSyncObj());
       return true;
     } catch (e) {
       escribir(K.cargar, { hoja: nombre, error: e.message });
@@ -1158,7 +1167,7 @@
         tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
         total: items().length, modo: 'fila', filas }));
       escribir(K.pendiente, []);
-      escribir(K.firma, firmaSync());
+      escribir(K.firma, firmaSyncObj());
     } catch (_) { /* se quedan en cola para el próximo auto-sync */ }
   }
 
@@ -1195,7 +1204,7 @@
     const cb = '__prevPull';
     let terminado = false;
     const s = document.createElement('script');
-    const t = setTimeout(() => fin(false), 15000);
+    const t = setTimeout(() => fin(false), 20000);
     function fin(ok) {
       if (terminado) return;
       terminado = true;
@@ -1225,23 +1234,47 @@
     const baseSync = { hora: hora(), ok: true, coloreadas: coloreadas,
       conDatos: conDatos, version: data.version, ultimo: data.ultimo };
 
-    // Si todavía hay datos locales sin enviar, una lectura vieja del Sheet no
-    // debe sobrescribirlos. El auto-sync los envía y vuelve a consultar.
-    if (pendientes().length || leer(K.firma, null) !== firmaSync()) {
-      escribir(K.sync, Object.assign({}, baseSync, { cambios: 0, esperandoEnvio: true }));
-      return;
-    }
+    // No sobrescribimos lo que todavía no se envió, pero SÍ traemos el resto
+    // de cambios del Sheet (por ejemplo un azul nuevo en otro serial).
+    const locales = new Set((pendientes() || []).concat(filasCambiantes().map((f) => f.serial)));
 
-    let cambios = 0;
+    const areaPorFila = (f) => {
+      const u = (v) => norm(v).toUpperCase();
+      return areas().find((a) =>
+        (!u(f.edificio) || u(a.edificio) === u(f.edificio)) &&
+        (!u(f.piso) || u(a.piso) === u(f.piso)) &&
+        (!u(f.oficina) || u(a.oficina) === u(f.oficina))) || areas()[0] || null;
+    };
+
+    let cambios = 0, omitidos = 0;
     todas.forEach((f) => {
-      const item = j.items.find((i) => i.serial === f.serial);
-      if (!item || !f.estado || f.estado === 'PENDIENTE') return;
+      if (!f.estado || f.estado === 'PENDIENTE') return;
+      if (locales.has(f.serial)) { omitidos++; return; }
+      let item = j.items.find((i) => i.serial === f.serial);
+      let nuevo = false;
+      // Un serial nuevo pintado en el Sheet también debe entrar a la app.
+      if (!item && /^\d{6,}$/.test(digitos(f.serial))) {
+        const area = areaPorFila(f);
+        if (!area) return;
+        const areaId = area.id;
+        item = { serial: f.serial, areaId, edificio: f.edificio || area.edificio || '',
+          piso: f.piso || area.piso || '', oficina: f.oficina || area.oficina || '',
+          tipo: f.tipo || 'OTRO', programada: '', tecnico: f.tecnico || '',
+          duracion: f.horasTexto || '', filaExcel: null, serialValido: true };
+        if (!state.data.catalogo.some((c) => c.serial === f.serial)) {
+          state.data.catalogo.push({ serial: f.serial, areaId, edificio: item.edificio,
+            piso: item.piso, oficina: item.oficina, tipo: item.tipo, serialValido: true });
+        }
+        insertarItemEnArea(item, areaId);
+        nuevo = true;
+      }
+      if (!item) return;
       const pr = state.progress[j.id][f.serial];
       const firma = firmaFilaSheet(f);
-      if (pr?.sheetFirma === firma) return; // ya se aplicó esta misma fila
-      const cambiaEstado = !pr || pr.estado !== f.estado;
+      if (!nuevo && pr?.sheetFirma === firma) return; // ya se aplicó esta misma fila
+      const cambiaEstado = nuevo || !pr || pr.estado !== f.estado;
       const tieneDatos = !!(norm(f.fecha) || norm(f.observaciones) || norm(f.horasTexto));
-      if (!tieneDatos && !cambiaEstado) return; // mismo color que ya tenemos
+      if (!nuevo && !tieneDatos && !cambiaEstado) return; // mismo color que ya tenemos
       const h = horasDeTexto(f.horasTexto);
       const novedad = norm(f.observaciones)
         || (cambiaEstado ? observacionFinal(f.estado, '', item) : (pr?.novedad || ''));
@@ -1262,7 +1295,7 @@
     });
     if (cambios) {
       guardarProgreso(); guardarDataset();
-      escribir(K.firma, firmaSync());
+      escribir(K.firma, firmaSyncObj());
       const activo = document.activeElement;
       const escribiendo = activo && /^(INPUT|TEXTAREA|SELECT)$/.test(activo.tagName);
       if (!escribiendo) render();
@@ -1271,7 +1304,7 @@
     const diag = data.ultimo;
     if (diag && diag.ok === false) toast('Sheets rechazó el envío: ' + (diag.error || 'revisa la clave'));
     else if (diag?.diag?.fallos?.length) toast('Sheets: ' + diag.diag.fallos[0]);
-    escribir(K.sync, Object.assign({}, baseSync, { cambios: cambios }));
+    escribir(K.sync, Object.assign({}, baseSync, { cambios: cambios, omitidos: omitidos }));
   }
 
   let syncEnCurso = false;
@@ -1285,36 +1318,42 @@
     try {
       const cfgToken = $('#cfgToken')?.value ?? state.config.token;
       const j = jornada(); if (!j) return false;
-      const filas = filasActuales();
-      const firma = firmaSync();
-      const sinCambios = !!silent && !pendientes().length && firma === leer(K.firma, '');
+      const filas = filasCambiantes();
+      const sinCambios = !pendientes().length && !filas.length;
 
-      // El auto-sync no vuelve a enviar lo idéntico: solo consulta el Sheet.
+      // Tanto el botón como el auto-sync evitan reenviar lo idéntico: solo consultan.
       if (sinCambios) {
         escribir(K.sync, { hora: hora(), ok: true, cambios: 0, sinCambios: true, enviadas: 0 });
         solicitarPull();
+        if (!silent && out) out.textContent = 'Sin cambios nuevos. Consultando ' + nombreHoja() + '…';
         return true;
       }
 
       let ok = false, msg = '';
       try {
-        await postSheet(url, JSON.stringify({ token: cfgToken,
-          hoja: nombreHoja(), jornada: j.id, fecha: hora(),
-          tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
-          total: items().length, modo: 'total', filas }));
+        // Un POST con cientos de equipos puede agotar el tiempo en Apps Script.
+        // Se envían solo los que cambiaron y en lotes de 40.
+        const LOTE = 40;
+        for (let i = 0; i < filas.length; i += LOTE) {
+          await postSheet(url, JSON.stringify({ token: cfgToken,
+            hoja: nombreHoja(), jornada: j.id, fecha: hora(),
+            tecnico: state.config.tecnico || j.tecnico || '', columnas: columnas(),
+            total: items().length, modo: 'total', filas: filas.slice(i, i + LOTE) }), 15000);
+        }
         escribir(K.pendiente, []);
-        escribir(K.firma, firma);
+        escribir(K.firma, firmaSyncObj());
         ok = true; msg = 'Enviado y consultado ' + hora();
       } catch (e) {
         msg = 'No se pudo enviar: ' + e.message;
-        // Si falla el envío completo, todos los registrados quedan en cola:
-        // así un envío individual posterior no puede marcarlos como enviados.
+        // Si falla el envío, esos seriales quedan en cola para reintentarlos.
         const p = pendientes();
         filas.forEach((f) => { if (p.indexOf(f.serial) === -1) p.push(f.serial); });
         escribir(K.pendiente, p);
       }
       escribir(K.sync, { hora: hora(), ok: ok, cambios: 0, enviadas: filas.length });
-      if (ok) solicitarPull();
+      // Aunque el envío falle, consultamos el Sheet: los cambios hechos allá
+      // (como un azul nuevo) no deben depender de que la subida funcione.
+      solicitarPull();
       if (!silent) {
         if (out) out.textContent = msg + (ok ? '. Revisa la hoja ' + nombreHoja() + '.' : '.');
         if (ok) { toast('Datos enviados y consultados'); vibrar(100); setTimeout(() => render(), 2500); }

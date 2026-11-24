@@ -1,4 +1,4 @@
-const CACHE = 'prev-v29';
+const CACHE = 'prev-v31';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './version.js', './manifest.webmanifest',
   './vendor/zxing.min.js', './vendor/xlsx.full.min.js', './vendor/JsBarcode.all.min.js',
