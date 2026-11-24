@@ -130,6 +130,11 @@
       soloColor.edificio === 'A1' && soloColor.oficina === 'Of1',
       JSON.stringify(pull.filas.map((f) => [f.serial, f.estado, f.edificio, f.oficina])));
 
+    hoja.bg[1][3] = '#ffffff';
+    const pull2 = JSON.parse(window.__api.doGet({ parameter: { token: 'udes2026', hoja: '2026-B', callback: '__prevPull' } }).toString().replace(/^__prevPull\(|\);$/g, ''));
+    const sinColor = pull2.filas.find((f) => f.serial === '11111111');
+    ok('color quitado llega como pendiente', pull2.ok && sinColor && sinColor.estado === 'PENDIENTE', JSON.stringify(sinColor));
+
     const mal = post(Object.assign({}, base, { hoja: 'Preventivo B 2026', filas: [alta] }));
     ok('hoja inexistente no crea hoja', mal.ok === false && /No existe la hoja/.test(mal.error || ''), JSON.stringify(mal));
 

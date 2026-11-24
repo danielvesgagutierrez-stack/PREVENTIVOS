@@ -126,7 +126,7 @@ El script busca el número de inventario en la pestaña creada y:
 - escribe fecha ejecutada, técnico, semestre, horas y observaciones;
 - deja `FECHA SEGUIMIENTO` vacío y conserva `FECHA PROGRAMADA`.
 
-Al traer cambios, la app compara el **contenido completo** de la fila (estado, fecha, horas y observaciones), no solo la fecha. Por eso ahora detecta aunque cambies **solo el color** a verde/azul/rojo o edites una observación sin tocar la fecha: el cambio se aplica igual. También se reconoce **cualquier tono de azul** de la paleta de Google Sheets (azul claro, medio, oscuro, azure, personalizados), no solo el azul exacto; lo mismo para verde, rojo y ámbar. Si pintas un **serial nuevo** que no estaba en el cronograma, la app lo agrega en su dependencia. Aunque el envío falle, la app igual consulta el Sheet y trae los cambios nuevos de otros seriales; solo deja intactos los que tú tenías pendientes de subir. Los colores del cronograma original que no son de la app se ignoran.
+Al traer cambios, la app compara el **contenido completo** de la fila (estado, fecha, horas y observaciones), no solo la fecha. Por eso ahora detecta aunque cambies **solo el color** a verde/azul/rojo o edites una observación sin tocar la fecha: el cambio se aplica igual. También se reconoce **cualquier tono de azul** de la paleta de Google Sheets (azul claro, medio, oscuro, azure, personalizados), no solo el azul exacto; lo mismo para verde, rojo y ámbar. Si **quitas el color** (lo dejas en blanco) de un equipo que ya tenía ejecución, la app lo interpreta como “pendiente” y lo desmarca para que no se cuente. Si pintas un **serial nuevo** que no estaba en el cronograma, la app lo agrega en su dependencia. Aunque el envío falle, la app igual consulta el Sheet y trae los cambios nuevos de otros seriales; solo deja intactos los que tú tenías pendientes de subir. Los colores del cronograma original que no son de la app se ignoran.
 
 El botón **Sincronizar ahora** ya no envía toda la jornada: envía **solo los registros que cambiaron**, en lotes de 40 y con un tiempo de espera mayor. Si no hay cambios, solo consulta el Sheet, así que no debería aparecer "Tiempo de espera agotado". La pestaña **Datos** muestra la última sincronización y un diagnóstico tipo *"Sheet leído: 231 con color · 231 con datos"*.
 
@@ -159,7 +159,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
-App instalada: 2026-11-20-v31 · a1b2c3d · 2026-11-20T19:35Z
+App instalada: 2026-11-20-v32 · a1b2c3d · 2026-11-20T19:35Z
 ```
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.

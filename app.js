@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v31';
+  const APP_VERSION = '2026-11-20-v32';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -58,8 +58,16 @@
       .replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
   function digitos(v) { return String(v ?? '').replace(/\D/g, ''); }
-  function hoy() { return new Date().toISOString().slice(0, 10); }
-  function hora() { return new Date().toISOString().slice(0, 16).replace('T', ' '); }
+  function partesFecha(d) {
+    const p = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d || new Date());
+    const g = (t) => p.find((x) => x.type === t)?.value || '';
+    return { y: g('year'), m: g('month'), d: g('day'), h: g('hour'), min: g('minute') };
+  }
+  function hoy() { const p = partesFecha(); return `${p.y}-${p.m}-${p.d}`; }
+  function hora() { const p = partesFecha(); return `${p.y}-${p.m}-${p.d} ${p.h}:${p.min}`; }
   function leer(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (_) { return d; } }
   function escribir(k, v) {
     try { localStorage.setItem(k, JSON.stringify(v)); }
@@ -1248,8 +1256,19 @@
 
     let cambios = 0, omitidos = 0;
     todas.forEach((f) => {
-      if (!f.estado || f.estado === 'PENDIENTE') return;
+      if (!f.estado) return;
       if (locales.has(f.serial)) { omitidos++; return; }
+      if (f.estado === 'PENDIENTE') {
+        const item = j.items.find((i) => i.serial === f.serial);
+        const pr = state.progress[j.id][f.serial];
+        if (item && pr?.registrado) {
+          delete state.progress[j.id][f.serial];
+          delete item.estado;
+          item.novedad = '';
+          cambios++;
+        }
+        return;
+      }
       let item = j.items.find((i) => i.serial === f.serial);
       let nuevo = false;
       // Un serial nuevo pintado en el Sheet también debe entrar a la app.
@@ -1287,7 +1306,7 @@
         tecnico: f.tecnico || pr?.tecnico || state.config.tecnico || j.tecnico || '',
         registrado: true,
         // El Sheet ya tiene este contenido: no lo reenviamos de vuelta.
-        sheetFirma: firma,
+        sheetFirma: firmaFilaSheet({ estado: f.estado, fecha: norm(f.fecha) || (pr?.fecha || hoy() + ' ' + hora().slice(11)), horasTexto: norm(f.horasTexto) || (pr?.horasTexto || horasTexto(pr?.horas || 1)), observaciones: novedad }),
       };
       item.estado = f.estado;
       item.novedad = novedad;

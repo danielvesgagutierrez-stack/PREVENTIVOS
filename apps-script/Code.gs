@@ -17,7 +17,7 @@
  * 4) Pega la URL en Datos en la app (clave: udes2026).
  */
 const TOKEN = 'udes2026';
-const VERSION = '2026-11-20i'; // se muestra en Datos para confirmar que está desplegado
+const VERSION = '2026-11-20j'; // se muestra en Datos para confirmar que está desplegado
 let diagEscritura = { fallos: [] }; // se guarda en doPost y se lee desde la app
 const FONDOS = {
   OK: '#92D050',
@@ -256,10 +256,11 @@ function aplicarEstados(hoja, filas, columnas) {
   const registrados = (filas || []).filter(function (f) {
     return f.estado && f.estado !== 'PENDIENTE';
   });
+  const desmarcar = (filas || []).filter(function (f) { return f.estado === 'PENDIENTE' && f.serial; });
   // Nada de registros = nada de cambios. Así el formato original se mantiene
   // intacto mientras se entra/sale de la app o corre el auto-sync.
   diagEscritura = { filas: registrados.length, existentes: 0, nuevos: 0, fallos: [] };
-  if (!registrados.length) return 0;
+  if (!registrados.length && !desmarcar.length) return 0;
 
   const col = detectarColumnas(hoja, columnas);
   const filaEnc = col.filaEncabezado;
@@ -357,6 +358,11 @@ function aplicarEstados(hoja, filas, columnas) {
   }
 
   function escribir(f, fila) {
+    if (f.estado === 'PENDIENTE') {
+      romperCombinadas(fila);
+      try { hoja.getRange(fila, col.serial).setBackground('#ffffff').setFontColor('#000000'); } catch (err) {}
+      return;
+    }
     romperCombinadas(fila);
     const campos = [
       [col.edificio, f.edificio], [col.piso, f.piso], [col.oficina, f.oficina],
@@ -411,10 +417,10 @@ function aplicarEstados(hoja, filas, columnas) {
   //    para que el color y los datos caigan en el serial correcto.
   const mapa = mapaActual();
   const existentes = [], nuevos = [];
-  registrados.forEach(function (f) {
+  registrados.concat(desmarcar).forEach(function (f) {
     const k = claveSerial(f.serial);
     if (mapa.porSerial[k]) existentes.push({ f: f, fila: mapa.porSerial[k] });
-    else nuevos.push(f);
+    else if (f.estado !== 'PENDIENTE') nuevos.push(f);
   });
   diagEscritura.existentes = existentes.length;
   diagEscritura.nuevos = nuevos.length;
@@ -435,7 +441,7 @@ function aplicarEstados(hoja, filas, columnas) {
     escribir(f, base + 1);
   });
 
-  return registrados.length;
+  return registrados.length + desmarcar.length;
 }
 
 function detectarColumnas(hoja, datos) {
@@ -499,15 +505,19 @@ function doGet(e) {
         const estado = estadoDeColor(fondos[i][col.serial - 1]);
         const fechaRaw = vals[i][col.ejecutada - 1];
         const fecha = fechaRaw instanceof Date
-          ? fechaRaw.toISOString().slice(0, 16).replace('T', ' ')
+          ? Utilities.formatDate(fechaRaw, 'America/Bogota', 'yyyy-MM-dd HH:mm')
           : String(fechaRaw || '');
         const horasTexto = String(vals[i][col.duracion - 1] || '');
         const observaciones = String(vals[i][col.observaciones - 1] || '');
-        // El cronograma tiene otros colores que la app no interpreta y que no
-        // deben traerse. SÍ se envían los cambios de color aunque no traigan
-        // fecha/observaciones: pintar una celda de verde/azul también es un
-        // cambio del Sheet y la app debe verlo.
-        if (!estado || estado === 'PENDIENTE') continue;
+        // Se envían cambios de color aunque no traigan fecha/observaciones.
+        // Si el usuario quitó el color (blanco/sin estado) pero la fila tiene
+        // datos de ejecución, la mandamos como PENDIENTE para que la app la
+        // desmarque y no la cuente.
+        const teniaDatos = !!(fecha || horasTexto || observaciones || String(vals[i][col.tecnico - 1] || '').trim());
+        if (!estado || estado === 'PENDIENTE') {
+          if (teniaDatos) filas.push({ serial: serial, estado: 'PENDIENTE', edificio: ed, piso: pi, oficina: of, tipo: String(vals[i][col.tipo - 1] || ''), fecha: fecha, tecnico: String(vals[i][col.tecnico - 1] || ''), semestre: String(vals[i][col.semestre - 1] || ''), horasTexto: horasTexto, observaciones: observaciones });
+          continue;
+        }
         filas.push({
           serial: serial,
           estado: estado,
