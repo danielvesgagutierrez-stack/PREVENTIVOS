@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v32';
+  const APP_VERSION = '2026-11-20-v33';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -386,6 +386,18 @@
   function viewEscanear() {
     return `<div class="card tight"><div class="small muted">Área actual: <b>${esc(state.areaActual ? areaNombre(state.areaActual) : 'ninguna')}</b></div></div>
       <div id="scannerWrap"><video id="video" playsinline muted autoplay></video><div class="mira"></div></div>
+      <div class="card mt" id="camControls" hidden>
+        <div class="row cam-zoom-row" id="camZoomRow" hidden style="align-items:center;gap:8px">
+          <button class="btn small" data-act="cam-zoom" data-dir="-1">−</button>
+          <input id="camZoom" type="range" min="1" max="1" step="0.1" value="1" style="flex:1">
+          <button class="btn small" data-act="cam-zoom" data-dir="1">+</button>
+          <span id="camZoomVal" class="small muted mono" style="min-width:42px;text-align:right">1x</span>
+        </div>
+        <div class="row mt" style="gap:8px;flex-wrap:wrap">
+          <button class="btn small" id="btnTorch" data-act="cam-torch" hidden>🔦 Linterna</button>
+        </div>
+        <p id="camHint" class="small muted mt">Si el código se ve pequeño, usa el zoom. La linterna ayuda con reflejos o poca luz.</p>
+      </div>
       <div class="card mt"><h2>Escribe el serial si falla la lectura</h2>
         <div class="row"><input class="campo grow mono" id="serialManual" inputmode="numeric" placeholder="Ej. 1020010500072" autocomplete="off">
           <button class="btn primary" data-act="buscar-manual">Buscar</button></div>
@@ -696,12 +708,65 @@
 
   /* ---------------- escáner ---------------- */
 
-  let codeReader = null, nativeLoop = false;
+  let codeReader = null, nativeLoop = false, scanTrack = null, scanCaps = {}, torchOn = false;
   function detenerEscanner() {
     try { codeReader?.reset(); } catch (_) {}
-    codeReader = null; nativeLoop = false;
+    codeReader = null; nativeLoop = false; scanTrack = null; scanCaps = {}; torchOn = false;
     const v = $('#video');
     if (v?.srcObject) { v.srcObject.getTracks().forEach((t) => t.stop()); v.srcObject = null; }
+  }
+
+  function aplicarControlesCamara(track) {
+    scanTrack = track;
+    scanCaps = (track && track.getCapabilities) ? track.getCapabilities() : {};
+    const box = $('#camControls'); if (!box) return;
+    let visible = false;
+
+    const zoomRow = $('#camZoomRow');
+    const zoom = $('#camZoom');
+    const zoomVal = $('#camZoomVal');
+    if (scanCaps.zoom && zoom && zoomRow) {
+      const min = scanCaps.zoom.min ?? 1;
+      const max = scanCaps.zoom.max ?? 1;
+      const step = scanCaps.zoom.step || 0.1;
+      zoom.min = String(min); zoom.max = String(max); zoom.step = String(step);
+      const inicial = Math.min(max, Math.max(min, Math.min(2, max)));
+      zoom.value = String(inicial);
+      if (zoomVal) zoomVal.textContent = Number(inicial).toFixed(1).replace(/\.0$/, '') + 'x';
+      zoomRow.hidden = false; visible = true;
+      track.applyConstraints({ advanced: [{ zoom: inicial }] }).catch(() => {});
+    }
+
+    const btnTorch = $('#btnTorch');
+    if (scanCaps.torch && btnTorch) { btnTorch.hidden = false; btnTorch.classList.remove('active'); visible = true; }
+
+    const hint = $('#camHint');
+    if (hint) {
+      if (scanCaps.zoom) hint.textContent = 'Usa el zoom para acercar el código. Si hay poca luz, prueba la linterna.';
+      else hint.textContent = 'Este celular no expone zoom por software. Acerca más el código o usa la linterna si aparece.';
+    }
+    box.hidden = !visible;
+  }
+
+  async function cambiarZoomCamara(valor) {
+    if (!scanTrack?.applyConstraints || !scanCaps.zoom) return;
+    const min = scanCaps.zoom.min ?? 1; const max = scanCaps.zoom.max ?? 1;
+    const z = Math.min(max, Math.max(min, Number(valor)));
+    try {
+      await scanTrack.applyConstraints({ advanced: [{ zoom: z }] });
+      const input = $('#camZoom'); if (input) input.value = String(z);
+      const label = $('#camZoomVal'); if (label) label.textContent = Number(z).toFixed(1).replace(/\.0$/, '') + 'x';
+    } catch (_) { toast('Este celular no permitió cambiar el zoom'); }
+  }
+
+  async function alternarLinterna() {
+    if (!scanTrack?.applyConstraints || !scanCaps.torch) return;
+    torchOn = !torchOn;
+    try {
+      await scanTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+      const btn = $('#btnTorch');
+      if (btn) { btn.classList.toggle('active', torchOn); btn.textContent = torchOn ? '🔦 Linterna encendida' : '🔦 Linterna'; }
+    } catch (_) { torchOn = false; toast('No se pudo activar la linterna'); }
   }
   function iniciarEscanner() {
     const video = $('#video'); if (!video) return;
@@ -713,6 +778,17 @@
       if (Date.now() - state.ultimoScan.hora < 2500) return;
       state.ultimoScan = { texto: t, hora: Date.now() }; vibrar(80); buscarSerial(t);
     };
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        // "continuous" ayuda a que la cámara reajuste foco mientras se acerca el código.
+        focusMode: { ideal: 'continuous' },
+        advanced: [{ focusMode: 'continuous' }],
+      },
+      audio: false,
+    };
     if (window.ZXing?.BrowserMultiFormatReader) {
       try {
         const hints = new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS, [
@@ -721,21 +797,24 @@
         ]]]);
         codeReader = new ZXing.BrowserMultiFormatReader(hints);
         const leer = (r) => { if (r) onResult(r.getText()); };
-        codeReader.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' } } }, video, leer)
-          .catch(() => codeReader.decodeFromVideoDevice(null, video, leer))
-          .catch(() => iniciarNativo(video, onResult));
+        codeReader.decodeFromConstraints(constraints, video, leer)
+          .then(() => { if (video.srcObject?.getVideoTracks) aplicarControlesCamara(video.srcObject.getVideoTracks()[0]); })
+          .catch(() => codeReader.decodeFromVideoDevice(null, video, leer)
+            .then(() => { if (video.srcObject?.getVideoTracks) aplicarControlesCamara(video.srcObject.getVideoTracks()[0]); }))
+          .catch(() => iniciarNativo(video, onResult, constraints));
         return;
       } catch (_) {}
     }
-    iniciarNativo(video, onResult);
+    iniciarNativo(video, onResult, constraints);
   }
-  async function iniciarNativo(video, onResult) {
+  async function iniciarNativo(video, onResult, constraints) {
     if (nativeLoop) return;
     if (!('BarcodeDetector' in window)) { toast('No se pudo abrir el lector. Usa el campo manual.'); return; }
     const detector = new BarcodeDetector({ formats: ['code_128', 'code_39', 'ean_13', 'qr_code', 'itf'] });
     nativeLoop = true;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const stream = await navigator.mediaDevices.getUserMedia(constraints || { video: { facingMode: 'environment' } });
     video.srcObject = stream; await video.play();
+    aplicarControlesCamara(stream.getVideoTracks()[0]);
     const tick = async () => {
       if (!nativeLoop) return;
       try { const c = await detector.detect(video); if (c[0]) onResult(c[0].rawValue); } catch (_) {}
@@ -1453,6 +1532,14 @@
       case 'guardar': await guardar(b.dataset.serial, b.dataset.siguiente === '1'); break;
       case 'confirmar-alta': darDeAlta(b.dataset.serial); break;
       case 'buscar-manual': buscarSerial($('#serialManual')?.value); break;
+      case 'cam-zoom': {
+        const input = $('#camZoom'); if (!input) break;
+        const dir = Number(b.dataset.dir || 0);
+        const step = Number(input.step || 0.1);
+        cambiarZoomCamara(Number(input.value) + dir * step * 5);
+        break;
+      }
+      case 'cam-torch': alternarLinterna(); break;
       case 'subir': importar('xlsx'); break;
       case 'elegir-hoja': await usarHoja(b.dataset.nombre); break;
       case 'informe': await generarInforme(); break;
@@ -1492,6 +1579,7 @@
   });
 
   view.addEventListener('input', (e) => {
+    if (e.target.id === 'camZoom') cambiarZoomCamara(e.target.value);
     if (e.target.dataset.act === 'filtro-txt') {
       state.filtroTexto = e.target.value;
       clearTimeout(state.filtroTimer);

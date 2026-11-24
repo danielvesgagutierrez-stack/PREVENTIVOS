@@ -159,7 +159,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
-App instalada: 2026-11-20-v32 · a1b2c3d · 2026-11-20T19:35Z
+App instalada: 2026-11-20-v33 · a1b2c3d · 2026-11-20T19:35Z
 ```
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.
