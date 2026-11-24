@@ -9,7 +9,7 @@
   // Las claves cambian con cada versión: Android conserva localStorage al
   // actualizar la APK, así que los datos viejos quedan guardados pero la app
   // nueva arranca limpia y carga el equipos.json que viene dentro del paquete.
-  const APP_VERSION = '2026-11-20-v33';
+  const APP_VERSION = '2026-11-20-v34';
   const K = {
     data: 'prev_dataset_v4',
     progress: 'prev_progress_v4',
@@ -397,6 +397,15 @@
           <button class="btn small" id="btnTorch" data-act="cam-torch" hidden>🔦 Linterna</button>
         </div>
         <p id="camHint" class="small muted mt">Si el código se ve pequeño, usa el zoom. La linterna ayuda con reflejos o poca luz.</p>
+      </div>
+      <div class="card mt"><h2>Si la cámara no enfoca bien</h2>
+        <p class="small muted">Toma una foto al código con la cámara normal del celular (ahí suele funcionar el macro) o elige una foto de galería.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn primary" data-act="foto-scan" data-source="camera">📷 Tomar foto al código</button>
+          <button class="btn" data-act="foto-scan" data-source="gallery">🖼️ Elegir foto</button>
+        </div>
+        <input id="fotoScanInput" type="file" accept="image/*" capture="environment" hidden>
+        <div id="fotoScanStatus" class="small muted mt"></div>
       </div>
       <div class="card mt"><h2>Escribe el serial si falla la lectura</h2>
         <div class="row"><input class="campo grow mono" id="serialManual" inputmode="numeric" placeholder="Ej. 1020010500072" autocomplete="off">
@@ -821,6 +830,50 @@
       requestAnimationFrame(tick);
     };
     tick();
+  }
+
+  async function detectarCodigoDeImagen(file) {
+    if (!file) return '';
+    const formatos = ['code_128', 'code_39', 'ean_13', 'qr_code', 'itf'];
+    if ('BarcodeDetector' in window) {
+      try {
+        const detector = new BarcodeDetector({ formats: formatos });
+        const bmp = await createImageBitmap(file);
+        try {
+          const codes = await detector.detect(bmp);
+          const val = codes.find((c) => c.rawValue)?.rawValue;
+          if (val) return val;
+        } finally { bmp.close?.(); }
+      } catch (_) {}
+    }
+    if (window.ZXing?.BrowserMultiFormatReader) {
+      const hints = new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.QR_CODE,
+      ]]]);
+      const reader = new ZXing.BrowserMultiFormatReader(hints);
+      const url = URL.createObjectURL(file);
+      try {
+        const res = await reader.decodeFromImageUrl(url);
+        return res?.getText?.() || '';
+      } catch (_) { return ''; }
+      finally { try { reader.reset(); } catch (_) {} URL.revokeObjectURL(url); }
+    }
+    return '';
+  }
+
+  async function escanearDesdeFoto(file) {
+    const status = $('#fotoScanStatus');
+    if (status) status.textContent = 'Leyendo foto…';
+    try {
+      const texto = await detectarCodigoDeImagen(file);
+      if (texto) { if (status) status.textContent = 'Código detectado: ' + texto; buscarSerial(texto); return; }
+      if (status) status.textContent = 'No se detectó un código claro en la foto. Intenta más cerca, con buena luz y sin reflejo.';
+      toast('No se leyó el código en la foto');
+    } catch (e) {
+      if (status) status.textContent = 'No se pudo leer la foto: ' + e.message;
+      toast('No se pudo leer la foto');
+    }
   }
 
   /* ---------------- importar Excel con elección de hoja ---------------- */
@@ -1540,6 +1593,14 @@
         break;
       }
       case 'cam-torch': alternarLinterna(); break;
+      case 'foto-scan': {
+        const inp = $('#fotoScanInput'); if (!inp) break;
+        inp.value = '';
+        if (b.dataset.source === 'gallery') inp.removeAttribute('capture');
+        else inp.setAttribute('capture', 'environment');
+        inp.click();
+        break;
+      }
       case 'subir': importar('xlsx'); break;
       case 'elegir-hoja': await usarHoja(b.dataset.nombre); break;
       case 'informe': await generarInforme(); break;
@@ -1591,6 +1652,11 @@
   });
   view.addEventListener('change', (e) => {
     if (e.target.dataset.act === 'filtro-ed') { state.filtroEdificio = e.target.value; render(); }
+    if (e.target.id === 'fotoScanInput') {
+      const f = e.target.files?.[0];
+      if (f) escanearDesdeFoto(f);
+      e.target.value = '';
+    }
   });
   window.addEventListener('hashchange', render);
   window.addEventListener('online', () => sincronizarAuto());

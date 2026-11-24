@@ -159,7 +159,7 @@ El APK trae la app completa dentro (no depende de internet), usa la cámara y gu
 El sello aparece en **Inicio**, justo debajo del nombre del archivo, y también en **Datos → Diagnóstico**. Debe aparecer algo como:
 
 ```
-App instalada: 2026-11-20-v33 · a1b2c3d · 2026-11-20T19:35Z
+App instalada: 2026-11-20-v34 · a1b2c3d · 2026-11-20T19:35Z
 ```
 
 El texto después del `·` es el **commit de GitHub con el que se compiló**. Si dice `local` o un commit anterior, el celular todavía tiene la APK vieja o el navegador sirvió una copia en caché. En ese caso toca **↻ Forzar actualización (borrar caché y recargar)** y reinstala el APK.
@@ -191,3 +191,4 @@ Si aparece una hoja nueva llamada **«Preventivo B 2026»**, la app está escrib
 - El cronograma original tiene columnas combinadas (por ejemplo `FECHA EJECUTADA` abarca 20 filas). El informe separa esas celdas para poder escribir fecha, horas y observaciones **por equipo**. `FECHA PROGRAMADA` y `FECHA SEGUIMIENTO` se dejan como estaban (esta última, en blanco).
 - La sincronización envía el estado completo de la jornada, no solo lo cambiado.
 - Pensado para un técnico; para varios en paralelo hay que añadir login y bloqueo por jornada.
+- En celulares con cámara débil, la vista **Escanear** también permite **tomar foto al código** o **elegir una foto** de galería. La app intenta leer el código desde la imagen (BarcodeDetector/ZXing). Si la foto sale borrosa o con reflejo, el campo manual sigue disponible.
